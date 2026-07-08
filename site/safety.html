@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Safety — llm-regression-observability</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site">
+  <a class="brand" href="index.html">llm-regression-observability</a>
+  <div class="tagline">A CPU-first framework for detecting, explaining, and reporting regressions in LLM applications and agentic systems.</div>
+  <nav class="site">
+    <a href="index.html">Overview</a>
+    <a href="architecture.html">Architecture</a>
+    <a href="trace-format.html">Trace format</a>
+    <a href="metrics.html">Metrics</a>
+    <a href="regression-categories.html">Regression categories</a>
+    <a href="example-comparison.html">Example comparison</a>
+    <a href="results.html">Results</a>
+    <a href="milestones.html">Milestones</a>
+    <a href="limitations.html">Limitations</a>
+    <a href="safety.html" class="active">Safety</a>
+    <a href="roadmap.html">Roadmap</a>
+  </nav>
+</header>
+<main>
+  <h1>Safety and privacy</h1>
+  <p class="lede">This is a reliability/evaluation framework — not a medical,
+  legal, or security authority. It makes no safety certification of any model or
+  application. Full text in <code>docs/SAFETY.md</code>.</p>
+
+  <h2>Data scope</h2>
+  <ul>
+    <li><strong>All fixtures are synthetic</strong> — prompts, outputs, tool
+    traces, retrieval docs are authored for this repo. No real user data anywhere.</li>
+    <li><strong>Small and safe</strong> — any biomedical- or security-adjacent
+    example is non-clinical, non-actionable, and non-exploitative; it exists only
+    to exercise the refusal and evidence scorers.</li>
+    <li>The refusal/boundary suite uses prompts whose <em>expected</em> behavior
+    is stable and benign; it tests whether a change shifts refusal behavior, not
+    whether a model should comply with anything harmful.</li>
+  </ul>
+
+  <h2>Redaction (Milestone 9)</h2>
+  <p>Before any trace or report is written, text passes through a redactor that
+  masks fake API keys, generic secrets / high-entropy tokens, bearer tokens and
+  <code>Authorization</code> headers, email addresses, and other obvious
+  credential-like strings. Redaction is covered by tests and runs
+  <strong>before</strong> report generation; <code>redaction_status</code> records
+  whether a record was clean, redacted, or flagged.</p>
+
+  <h2>Never committed</h2>
+  <p>Secrets, API keys, real API responses, private data, <code>.env</code> files,
+  large logs, response caches, model weights, and <code>.claude/settings*.json</code>
+  are all git-ignored, and a repository-hygiene check scans for them.</p>
+
+  <h2>Optional paid-API mode</h2>
+  <p>No paid API is used by default or in any test. If the optional API adapter is
+  enabled (Milestone 11) it is gated by dry-run mode, a token/cost estimator, a
+  hard max-cost guard, a response cache, and explicit opt-in. Real API responses
+  are never committed.</p>
+
+  <h2>Honest framing</h2>
+  <p>Where a metric is approximate (cost estimation) or a placeholder (explanation
+  quality), the docs and code say so. The system measures <em>relative</em>
+  behavioral change on <em>synthetic</em> fixtures; it does not validate
+  correctness, safety, or fitness for any real-world use.</p>
+</main>
+<footer class="site">llm-regression-observability — reliability/evaluation framework. Not a medical, legal, or security authority.</footer>
+</body>
+</html>

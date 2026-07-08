@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Roadmap — llm-regression-observability</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site">
+  <a class="brand" href="index.html">llm-regression-observability</a>
+  <div class="tagline">A CPU-first framework for detecting, explaining, and reporting regressions in LLM applications and agentic systems.</div>
+  <nav class="site">
+    <a href="index.html">Overview</a>
+    <a href="architecture.html">Architecture</a>
+    <a href="trace-format.html">Trace format</a>
+    <a href="metrics.html">Metrics</a>
+    <a href="regression-categories.html">Regression categories</a>
+    <a href="example-comparison.html">Example comparison</a>
+    <a href="results.html">Results</a>
+    <a href="milestones.html">Milestones</a>
+    <a href="limitations.html">Limitations</a>
+    <a href="safety.html">Safety</a>
+    <a href="roadmap.html" class="active">Roadmap</a>
+  </nav>
+</header>
+<main>
+  <h1>Roadmap &amp; research directions</h1>
+  <p class="lede">Where the work could go as research, framed honestly as open
+  questions plus what would have to be built and shown. Full text in
+  <code>docs/PAPER_PATH.md</code>. The current scaffold demonstrates none of these
+  yet; it provides the contracts, deterministic ground-truth fixtures, and the
+  detection/report pipeline that make the studies runnable.</p>
+
+  <h2>Build path (near term)</h2>
+  <p>Milestones 0–13 (see <a href="milestones.html">Milestones</a>) deliver the
+  runnable framework: schemas, fixtures, adapters, executor, evaluators,
+  comparison, reports, observability, redaction, integration contracts, and an
+  optional guarded API adapter.</p>
+
+  <h2>Research directions (longer term)</h2>
+  <ol>
+    <li><strong>Statistical detection under stochasticity.</strong> Multi-sample
+    adapters; replace threshold flags with significance tests that control a
+    stated false-discovery rate; measure detection power vs sample budget.</li>
+    <li><strong>Failure clustering &amp; root-cause attribution.</strong> Inject k
+    defect types; measure whether clustering recovers k homogeneous groups against
+    a known confusion matrix.</li>
+    <li><strong>App vs. infra attribution as a measurable claim.</strong> Label a
+    set of app/infra incidents; report precision/recall and the asymmetric cost of
+    each error type.</li>
+    <li><strong>Process-metric validity.</strong> Do retries / failed tool calls /
+    sequence drift predict outcomes users care about, or are they gameable
+    proxies? Calibrate severity accordingly.</li>
+    <li><strong>Grounding without a semantic model.</strong> Benchmark the stdlib
+    evidence scorers against a learned-entailment baseline; state precisely where
+    the placeholder must be replaced.</li>
+    <li><strong>Cross-system trace portability.</strong> Realize the import
+    contracts against a code-agent runtime, BioAgentBench, BioScientist OS, and
+    agent-control-bench; run the same detectors and reports on imported traces.</li>
+  </ol>
+
+  <h2>Non-claims</h2>
+  <p>Each direction needs its own experiment, dataset, and write-up before any
+  empirical claim is made. Nothing above is asserted by the current repository.</p>
+</main>
+<footer class="site">llm-regression-observability — research/engineering artifact. Honest about what is not yet shown.</footer>
+</body>
+</html>

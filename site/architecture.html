@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Architecture — llm-regression-observability</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site">
+  <a class="brand" href="index.html">llm-regression-observability</a>
+  <div class="tagline">A CPU-first framework for detecting, explaining, and reporting regressions in LLM applications and agentic systems.</div>
+  <nav class="site">
+    <a href="index.html">Overview</a>
+    <a href="architecture.html" class="active">Architecture</a>
+    <a href="trace-format.html">Trace format</a>
+    <a href="metrics.html">Metrics</a>
+    <a href="regression-categories.html">Regression categories</a>
+    <a href="example-comparison.html">Example comparison</a>
+    <a href="results.html">Results</a>
+    <a href="milestones.html">Milestones</a>
+    <a href="limitations.html">Limitations</a>
+    <a href="safety.html">Safety</a>
+    <a href="roadmap.html">Roadmap</a>
+  </nav>
+</header>
+<main>
+  <h1>Architecture</h1>
+  <p class="lede">Data flows one direction: cases plus an adapter produce run
+  records; two runs are compared into comparison records; comparison records
+  render into a report. Every stage writes inspectable JSON/JSONL artifacts so it
+  can be re-run or examined on its own.</p>
+
+  <p><span class="status scaffold">status: contract defined; stages implemented across Milestones 1–8</span></p>
+
+  <h2>Pipeline</h2>
+  <pre><code>evals/suites/*.yaml   ┌─────────────────────────────────────────┐
+evals/fixtures/*  ───▶│  RUN EXECUTOR (M4)                       │──▶ results/runs/&lt;run_id&gt;/
+adapters (M3/M11)     │  case → adapter → RunRecord + spans      │      run.jsonl, spans.jsonl
+                      │  estimate tokens/cost, record latency    │
+                      └────────────────┬────────────────────────┘
+                                       │
+evaluators (M5)       ┌────────────────▼────────────────────────┐
+json_schema, exact,   │  COMPARISON ENGINE (M6)                  │──▶ results/comparisons/&lt;id&gt;/
+tool_calls, evidence, │  pair baseline vs candidate per case     │      comparison.jsonl
+latency, cost,        │  deltas → RegressionFlag(s), cluster,     │      summary.json
+refusal, error        │  aggregate by suite + category           │
+                      └────────────────┬────────────────────────┘
+                                       │
+reports (M7)          ┌────────────────▼────────────────────────┐
+redaction (M9)        │  REPORT GENERATOR                        │──▶ results/reports/*.md, *.html
+observability (M8)    │  headline, per-category, worst cases,     │
+                      │  latency/cost tables, examples           │
+                      └─────────────────────────────────────────┘</code></pre>
+
+  <h2>Why file-based stages</h2>
+  <p>Each stage persists its output before the next begins. That makes the system
+  debuggable (inspect the JSONL), reproducible (re-run any stage on committed
+  artifacts), and portable (a trace imported from another runtime enters at the
+  executor boundary). Observability spans — request, model call, tool call,
+  retrieval, evaluator — are emitted next to run records so a single case is fully
+  reconstructable.</p>
+
+  <h2>Package layout</h2>
+  <pre><code>src/llm_regression_observability/
+  __init__.py     schemas.py      cli.py
+  datasets/    loader.py versioning.py fixtures.py
+  traces/      model_trace.py tool_trace.py redaction.py storage.py
+  evaluators/  exact.py json_schema.py tool_calls.py evidence.py
+               refusal.py latency.py cost.py semantic_stub.py
+  comparison/  baseline.py candidate.py diff.py regression.py clustering.py
+  observability/ metrics.py spans.py aggregation.py
+  adapters/    mock_model.py recorded_model.py scripted_model.py api_stub.py
+  reports/     markdown.py html.py</code></pre>
+
+  <h2>Deterministic by construction</h2>
+  <p>No ambient <code>time</code>/<code>random</code>/<code>datetime.now()</code>
+  in scored paths. Timestamps and seeds are inputs recorded in fixtures or run
+  config. Two runs of the same suite on the same fixtures produce byte-identical
+  artifacts except for an explicit <code>run_id</code> — which is what lets
+  "the injected regression was detected" be a stable test rather than a flaky
+  one.</p>
+
+  <h2>Relevant files</h2>
+  <ul class="files">
+    <li>docs/PLAN.md · docs/TRACE_FORMAT.md · docs/OBSERVABILITY.md</li>
+    <li>src/llm_regression_observability/ (per-stage modules above)</li>
+  </ul>
+
+  <h2>Open questions / limitations</h2>
+  <p>The scaffold defines the contract; each stage is realized in its milestone.
+  There is no server or persistence layer beyond local files (an optional SQLite
+  trace index is regenerable). See <a href="limitations.html">Limitations</a>.</p>
+</main>
+<footer class="site">llm-regression-observability — research/engineering artifact. Built milestone by milestone.</footer>
+</body>
+</html>

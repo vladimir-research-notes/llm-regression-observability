@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Milestones — llm-regression-observability</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site">
+  <a class="brand" href="index.html">llm-regression-observability</a>
+  <div class="tagline">A CPU-first framework for detecting, explaining, and reporting regressions in LLM applications and agentic systems.</div>
+  <nav class="site">
+    <a href="index.html">Overview</a>
+    <a href="architecture.html">Architecture</a>
+    <a href="trace-format.html">Trace format</a>
+    <a href="metrics.html">Metrics</a>
+    <a href="regression-categories.html">Regression categories</a>
+    <a href="example-comparison.html">Example comparison</a>
+    <a href="results.html">Results</a>
+    <a href="milestones.html" class="active">Milestones</a>
+    <a href="limitations.html">Limitations</a>
+    <a href="safety.html">Safety</a>
+    <a href="roadmap.html">Roadmap</a>
+  </nav>
+</header>
+<main>
+  <h1>Milestones</h1>
+  <p class="lede">The system is built in fourteen milestones (0–13), one commit
+  each. Each is implemented by a single <code>claude -p</code> run driven by
+  <code>scripts/run_all_milestones_with_claude.sh</code>, which stops on agent
+  failure, no new commit, a dirty tree, or a failing test. Full specs live in
+  <code>docs/milestones/</code>.</p>
+
+  <p><span class="status scaffold">status: contract &amp; harness ready; milestones not yet started</span></p>
+
+  <ol class="milestones">
+    <li><span class="mtitle">Scaffold &amp; project contract</span>
+      <div class="mbody">Package skeleton, <code>pyproject.toml</code>, <code>llmreg</code> CLI stub, first CPU-only tests. Dependency-free core.</div></li>
+    <li><span class="mtitle">Core schemas &amp; trace model</span>
+      <div class="mbody">Typed contracts — EvalCase, RunRecord, ToolCallTrace, RetrievalTrace, MetricResult, ComparisonRecord, RegressionFlag, ReportSummary — with byte-stable serialization and round-trip tests.</div></li>
+    <li><span class="mtitle">Fixture suites</span>
+      <div class="mbody">Six synthetic suites (structured JSON, tool use, retrieval/evidence, refusal boundary, latency/cost, agent trace), each with baseline + candidate defects annotated by expected category, plus a fixture validator.</div></li>
+    <li><span class="mtitle">Adapters</span>
+      <div class="mbody">MockModelAdapter, RecordedModelAdapter, ScriptedRegressionAdapter (injects known regressions), and an inert ApiAdapterStub. All deterministic.</div></li>
+    <li><span class="mtitle">Run-suite executor</span>
+      <div class="mbody">Read cases → call adapter → record outputs, tool calls, retrieval, token/cost estimates, latency → write reproducible <code>results/runs/</code> traces.</div></li>
+    <li><span class="mtitle">Evaluators</span>
+      <div class="mbody">Deterministic scorers for exact/structural success, JSON schema validity, tool-call drift, evidence coverage, refusal shift, latency/cost, error classification, trace completeness — tested with exact expected scores.</div></li>
+    <li><span class="mtitle">Baseline vs candidate comparison</span>
+      <div class="mbody">Pair cases, compute deltas, raise regression flags with severity and app/infra attribution, cluster failures, aggregate by suite and category. Detects the injected regressions.</div></li>
+    <li><span class="mtitle">Reports</span>
+      <div class="mbody">Markdown (+ optional HTML): headline, per-category changes, worst regressions, examples, latency/cost tables, validity table, tool-call and evidence diffs, limitations. Redaction-gated.</div></li>
+    <li><span class="mtitle">Observability layer</span>
+      <div class="mbody">Request / model-call / tool-call / retrieval / evaluator spans and aggregate metrics. Trace completeness and infra signals reported separately from application scores.</div></li>
+    <li><span class="mtitle">Redaction &amp; safety hygiene</span>
+      <div class="mbody">Mask fake API keys, secrets, bearer tokens, emails, credential-like strings — before any report is generated. Proven by tests.</div></li>
+    <li><span class="mtitle">Integration contracts</span>
+      <div class="mbody">Trace import/export formats for a code-agent runtime, BioAgentBench, BioScientist OS, agent-control-bench, and optional Claude API — validated on synthetic examples only; no external repo required.</div></li>
+    <li><span class="mtitle">Optional API adapter stub &amp; cost guard</span>
+      <div class="mbody">Disabled by default: dry-run mode, token/cost estimator, hard max-cost guard, response cache, explicit opt-in. No real API in any test.</div></li>
+    <li><span class="mtitle">Final portfolio report</span>
+      <div class="mbody">README, <code>docs/RESULTS.md</code>, and website brought to portfolio quality with real, reproducible smoke-run numbers.</div></li>
+    <li><span class="mtitle">Final cleanup</span>
+      <div class="mbody">Run every quality gate end to end; verify no secrets/large logs/caches; leave a clean working tree. Nothing pushed.</div></li>
+  </ol>
+
+  <h2>How a milestone runs</h2>
+  <pre><code>./scripts/run_all_milestones_with_claude.sh        # milestones 0..13
+./scripts/run_all_milestones_with_claude.sh 4 6    # a subrange</code></pre>
+  <p>Each run reads <code>CLAUDE.md</code>, the plan, and the milestone spec;
+  implements exactly one milestone; updates docs and this website; writes a
+  human-review placeholder; and commits locally.</p>
+</main>
+<footer class="site">llm-regression-observability — research/engineering artifact. Built milestone by milestone.</footer>
+</body>
+</html>

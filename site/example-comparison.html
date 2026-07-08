@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Example comparison — llm-regression-observability</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site">
+  <a class="brand" href="index.html">llm-regression-observability</a>
+  <div class="tagline">A CPU-first framework for detecting, explaining, and reporting regressions in LLM applications and agentic systems.</div>
+  <nav class="site">
+    <a href="index.html">Overview</a>
+    <a href="architecture.html">Architecture</a>
+    <a href="trace-format.html">Trace format</a>
+    <a href="metrics.html">Metrics</a>
+    <a href="regression-categories.html">Regression categories</a>
+    <a href="example-comparison.html" class="active">Example comparison</a>
+    <a href="results.html">Results</a>
+    <a href="milestones.html">Milestones</a>
+    <a href="limitations.html">Limitations</a>
+    <a href="safety.html">Safety</a>
+    <a href="roadmap.html">Roadmap</a>
+  </nav>
+</header>
+<main>
+  <h1>Example comparison</h1>
+  <p class="lede">An illustrative walk-through of a single structured-output case
+  through the pipeline. The numbers below are a hand-authored illustration of the
+  intended shape; real, reproducible numbers land on the
+  <a href="results.html">Results</a> page after the smoke run (Milestone 12).</p>
+
+  <p><span class="status scaffold">status: illustrative — replaced by real smoke output at Milestone 12</span></p>
+
+  <h2>The case</h2>
+  <pre><code>case_id: structured_json/order_summary
+prompt:  "Return an order summary as JSON."
+json_schema: { required: [order_id, total_usd, items], ... }</code></pre>
+
+  <h2>Baseline vs candidate output</h2>
+  <pre><code>baseline  (recorded):   {"order_id":"A-1","total_usd":42.0,"items":3}      # valid
+candidate (scripted):   {"order_id":"A-1","total":"42.0","items":3}       # 'total_usd' missing, wrong type</code></pre>
+
+  <h2>Scored deltas</h2>
+  <table>
+    <tr><th>Metric</th><th>Baseline</th><th>Candidate</th><th>Delta</th></tr>
+    <tr><td>json_parse_success</td><td>1.0</td><td>1.0</td><td>0.0</td></tr>
+    <tr><td>json_schema_validity</td><td>1.0</td><td>0.0</td><td><strong>-1.0</strong></td></tr>
+    <tr><td>field_diff_count</td><td>0</td><td>2</td><td>+2</td></tr>
+    <tr><td>latency_ms</td><td>180</td><td>190</td><td>+10</td></tr>
+  </table>
+
+  <h2>Resulting flag</h2>
+  <pre><code>RegressionFlag(
+  category="structured_output_regression",
+  severity="critical",
+  metric="json_schema_validity",
+  observed=0.0, threshold=1.0,
+  explanation="required field 'total_usd' missing; 'total' has wrong type (str, expected number)",
+  attribution="app"
+)</code></pre>
+  <p>The latency move (+10&nbsp;ms) does <em>not</em> flag: it fails the absolute
+  (+50&nbsp;ms) and relative (+25%) minimums. Only the schema regression fires, so
+  the report leads with the correctness loss, not the noise.</p>
+
+  <h2>Report excerpt (intended shape)</h2>
+  <pre><code>## Headline
+1 case regressed of 1 — structured_output_regression (critical) ×1
+
+## Worst regressions
+- structured_json/order_summary: schema valid → invalid (missing 'total_usd')</code></pre>
+
+  <h2>Relevant files</h2>
+  <ul class="files">
+    <li>evals/fixtures/structured_json/ — the fixture suite</li>
+    <li>src/llm_regression_observability/reports/markdown.py</li>
+  </ul>
+</main>
+<footer class="site">llm-regression-observability — research/engineering artifact. Illustrative until the smoke run.</footer>
+</body>
+</html>

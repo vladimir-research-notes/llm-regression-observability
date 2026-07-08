@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Results — llm-regression-observability</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site">
+  <a class="brand" href="index.html">llm-regression-observability</a>
+  <div class="tagline">A CPU-first framework for detecting, explaining, and reporting regressions in LLM applications and agentic systems.</div>
+  <nav class="site">
+    <a href="index.html">Overview</a>
+    <a href="architecture.html">Architecture</a>
+    <a href="trace-format.html">Trace format</a>
+    <a href="metrics.html">Metrics</a>
+    <a href="regression-categories.html">Regression categories</a>
+    <a href="example-comparison.html">Example comparison</a>
+    <a href="results.html" class="active">Results</a>
+    <a href="milestones.html">Milestones</a>
+    <a href="limitations.html">Limitations</a>
+    <a href="safety.html">Safety</a>
+    <a href="roadmap.html">Roadmap</a>
+  </nav>
+</header>
+<main>
+  <h1>Results</h1>
+  <p><span class="status pending">status: pending — populated after the smoke run (Milestones 6 &amp; 12)</span></p>
+
+  <div class="callout warn">No results are claimed yet. This page is filled with
+  real, reproducible numbers once the run executor, evaluators, and comparison
+  engine exist and the smoke suite has been run baseline-vs-candidate offline.</div>
+
+  <h2>What will be reported</h2>
+  <ul>
+    <li><strong>Headline</strong> — cases, cases regressed, flags by category.</li>
+    <li><strong>Injected vs detected</strong> — the scripted adapter injects known
+    defects; this table shows the detector's recall against ground truth.</li>
+    <li><strong>Structured-output validity</strong> — baseline vs candidate rate.</li>
+    <li><strong>Tool-call drift</strong> — allowed-tool ratio, sequence similarity, missing/extra tools.</li>
+    <li><strong>Evidence grounding</strong> — coverage, citation correctness, unsupported claims.</li>
+    <li><strong>Latency / cost</strong> — p50/p95 deltas, total cost delta.</li>
+    <li><strong>Refusal behavior</strong> — expected vs observed shifts.</li>
+    <li><strong>App vs. harness noise</strong> — how many degradations were attributed to infrastructure and excluded from flags.</li>
+  </ul>
+
+  <h2>Reproduction</h2>
+  <pre><code>llmreg run-suite --suite evals/suites/smoke.yaml --adapter recorded \
+    --app-version baseline  --out results/runs/
+llmreg run-suite --suite evals/suites/smoke.yaml --adapter scripted-regression \
+    --app-version candidate --out results/runs/
+llmreg compare --baseline results/runs/&lt;baseline&gt; --candidate results/runs/&lt;candidate&gt; \
+    --out results/comparisons/
+llmreg report --comparison results/comparisons/&lt;id&gt; \
+    --out results/reports/regression_report.md</code></pre>
+  <p>All numbers are produced offline, CPU-only, and are byte-reproducible on the
+  same fixtures. See <code>docs/RESULTS.md</code> and
+  <code>docs/REPRODUCIBILITY.md</code>.</p>
+</main>
+<footer class="site">llm-regression-observability — research/engineering artifact. No results claimed until the smoke run.</footer>
+</body>
+</html>

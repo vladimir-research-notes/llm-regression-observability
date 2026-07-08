@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trace format — llm-regression-observability</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site">
+  <a class="brand" href="index.html">llm-regression-observability</a>
+  <div class="tagline">A CPU-first framework for detecting, explaining, and reporting regressions in LLM applications and agentic systems.</div>
+  <nav class="site">
+    <a href="index.html">Overview</a>
+    <a href="architecture.html">Architecture</a>
+    <a href="trace-format.html" class="active">Trace format</a>
+    <a href="metrics.html">Metrics</a>
+    <a href="regression-categories.html">Regression categories</a>
+    <a href="example-comparison.html">Example comparison</a>
+    <a href="results.html">Results</a>
+    <a href="milestones.html">Milestones</a>
+    <a href="limitations.html">Limitations</a>
+    <a href="safety.html">Safety</a>
+    <a href="roadmap.html">Roadmap</a>
+  </nav>
+</header>
+<main>
+  <h1>Trace format</h1>
+  <p class="lede">All artifacts are JSON / JSONL, defined as typed schemas in
+  <code>schemas.py</code>. Line-delimited JSON is used for record streams
+  (append- and diff-friendly); plain JSON for single-object summaries. The full
+  contract is <code>docs/TRACE_FORMAT.md</code>.</p>
+
+  <p><span class="status scaffold">status: contract defined; types implemented in Milestone 1</span></p>
+
+  <h2>EvalCase</h2>
+  <pre><code>case_id, version, prompt, input_payload, expected_properties,
+json_schema?, allowed_tools?, retrieval_docs?, tags, risk_category</code></pre>
+  <p>Expected behavior is expressed as <em>properties</em> (contains, equals,
+  matches, numeric range, schema-valid), not a raw expected string.</p>
+
+  <h2>RunRecord</h2>
+  <pre><code>run_id, case_id, app_version, model_id, prompt_version, tool_version,
+timestamp, input_tokens_estimate, output_tokens_estimate, latency_ms,
+cost_estimate_usd, final_output, parsed_output, tool_calls[],
+retrieval_sources[], errors[], redaction_status</code></pre>
+  <p>One record per (case, run), written to
+  <code>results/runs/&lt;run_id&gt;/run.jsonl</code>. <code>ToolCallTrace</code>
+  carries name, arguments, order index, status, error;
+  <code>RetrievalTrace</code> carries source id, snippet, claim, and whether the
+  snippet supports the claim; <code>ErrorRecord</code> carries kind, message, and
+  <code>origin</code> (<code>app</code> | <code>infra</code>) — the field that
+  drives harness-noise filtering.</p>
+
+  <h2>ComparisonRecord</h2>
+  <pre><code>case_id, baseline_run_id, candidate_run_id, changed_fields[],
+score_delta, latency_delta, cost_delta, json_validity_delta,
+tool_call_delta, refusal_delta, evidence_delta,
+regression_flags[], human_readable_summary</code></pre>
+  <p>One record per paired case. A <code>RegressionFlag</code> carries category,
+  severity, the triggering metric, the observed value, the threshold, an
+  explanation, and an <code>attribution</code> (app vs infra).</p>
+
+  <h2>ReportSummary</h2>
+  <pre><code>comparison_id, suite_id, baseline_version, candidate_version,
+case_count, regressed_case_count, flags_by_category,
+latency_p50_delta, latency_p95_delta, cost_total_delta, clusters[]</code></pre>
+
+  <h2>Conventions</h2>
+  <ul>
+    <li><strong>Sorted keys, fixed field order</strong> → byte-stable, diff-friendly output.</li>
+    <li><strong>No ambient values</strong> — timestamps and seeds are inputs.</li>
+    <li><strong>Redaction before persistence</strong> — text is masked before any write to <code>results/</code> or a report.</li>
+  </ul>
+
+  <h2>Relevant files</h2>
+  <ul class="files">
+    <li>docs/TRACE_FORMAT.md — the authoritative contract</li>
+    <li>src/llm_regression_observability/schemas.py — typed models</li>
+    <li>src/llm_regression_observability/traces/storage.py — JSONL read/write</li>
+  </ul>
+
+  <h2>Open questions / limitations</h2>
+  <p>Optional SQLite trace indexing (for querying many runs) is regenerable and
+  not required. Import contracts for external traces are defined in Milestone 10.</p>
+</main>
+<footer class="site">llm-regression-observability — research/engineering artifact. Built milestone by milestone.</footer>
+</body>
+</html>

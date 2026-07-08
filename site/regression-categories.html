@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Regression categories — llm-regression-observability</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site">
+  <a class="brand" href="index.html">llm-regression-observability</a>
+  <div class="tagline">A CPU-first framework for detecting, explaining, and reporting regressions in LLM applications and agentic systems.</div>
+  <nav class="site">
+    <a href="index.html">Overview</a>
+    <a href="architecture.html">Architecture</a>
+    <a href="trace-format.html">Trace format</a>
+    <a href="metrics.html">Metrics</a>
+    <a href="regression-categories.html" class="active">Regression categories</a>
+    <a href="example-comparison.html">Example comparison</a>
+    <a href="results.html">Results</a>
+    <a href="milestones.html">Milestones</a>
+    <a href="limitations.html">Limitations</a>
+    <a href="safety.html">Safety</a>
+    <a href="roadmap.html">Roadmap</a>
+  </nav>
+</header>
+<main>
+  <h1>Regression categories</h1>
+  <p class="lede">A regression fires when a candidate is worse than the baseline
+  by more than a threshold on a dimension. Detection is deterministic and
+  threshold-driven — nothing is learned or fitted. Full rules in
+  <code>docs/REGRESSION_DETECTION.md</code>.</p>
+
+  <p><span class="status scaffold">status: taxonomy defined; detector implemented in Milestone 6</span></p>
+
+  <h2>The eight categories</h2>
+  <table>
+    <tr><th>Category</th><th>Fires when</th><th>Default threshold</th></tr>
+    <tr><td><code>structured_output_regression</code></td><td>JSON parse/schema validity dropped</td><td>valid → invalid on a case</td></tr>
+    <tr><td><code>tool_call_regression</code></td><td>wrong/missing/extra tool, arg or order drift</td><td>seq&nbsp;sim &lt; 0.8 or any disallowed/missing tool</td></tr>
+    <tr><td><code>latency_regression</code></td><td>p50/p95 latency exceeded threshold</td><td>p95 &gt; +25% and &gt; +50&nbsp;ms</td></tr>
+    <tr><td><code>cost_regression</code></td><td>estimated cost exceeded threshold</td><td>&gt; +20%</td></tr>
+    <tr><td><code>refusal_behavior_shift</code></td><td>over/under-refusal vs expected</td><td>any flip vs expected</td></tr>
+    <tr><td><code>evidence_grounding_regression</code></td><td>citations missing/wrong/unsupported</td><td>coverage drop &gt; 0.2 or new unsupported claim</td></tr>
+    <tr><td><code>final_answer_regression</code></td><td>task-success score dropped</td><td>success 1 → 0</td></tr>
+    <tr><td><code>error_rate_regression</code></td><td>app-origin error/retry rate increased</td><td>error-rate delta &gt; +0.1</td></tr>
+  </table>
+  <p>Thresholds are the documented defaults; the detector reads them from the
+  suite manifest, so they tune without code changes.</p>
+
+  <h2>Severity</h2>
+  <p><span class="pill critical">critical</span> correctness lost (success 1→0,
+  schema valid→invalid, disallowed tool, new unsupported claim).
+  <span class="pill warn">warn</span> quality/efficiency degraded past threshold
+  (latency, cost, partial evidence drop, arg drift).
+  <span class="pill">info</span> a noted change that did not cross a threshold.</p>
+
+  <h2>Application vs. harness noise</h2>
+  <p>Every degradation is attributed <code>app</code> (raises a flag) or
+  <code>infra</code> (recorded, surfaced, but not flagged). A timeout on a flaky
+  mock, a transport error, or a malformed fixture is harness noise. The rule set
+  is conservative — when in doubt it flags as <code>app</code> and labels its
+  confidence — because a missed regression is worse than a noisy one. This is the
+  mechanism behind research question&nbsp;#9.</p>
+
+  <h2>Controlling false positives</h2>
+  <ul>
+    <li>Deterministic runs remove sampling variance.</li>
+    <li>Thresholds combine a relative and an absolute minimum, so jitter never fires.</li>
+    <li>Direction-aware: only <em>worse</em> moves flag.</li>
+    <li>Missing cases are reported <code>unpaired</code>, never scored as success.</li>
+    <li>Correlated failures are clustered so one root cause reads as one finding.</li>
+  </ul>
+
+  <h2>Relevant files</h2>
+  <ul class="files">
+    <li>docs/REGRESSION_DETECTION.md</li>
+    <li>src/llm_regression_observability/comparison/regression.py, clustering.py</li>
+  </ul>
+</main>
+<footer class="site">llm-regression-observability — research/engineering artifact. Built milestone by milestone.</footer>
+</body>
+</html>

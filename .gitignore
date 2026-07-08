@@ -1,0 +1,78 @@
+# Local Claude Code overrides and permissions (never commit local settings)
+.claude/settings.local.json
+.claude/settings.json
+
+# Python virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python caches and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+
+# Build / packaging artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Coverage / test artifacts
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Node (only static HTML/CSS is committed under site/)
+node_modules/
+
+# Secrets and credentials (never commit)
+.env
+.env.*
+*.key
+*.pem
+secrets.*
+
+# Response caches from any optional API adapter (never commit)
+.api_cache/
+**/api_cache/
+*.cache.json
+
+# Model weights / large binary artifacts (never needed; CPU-only project)
+*.bin
+*.pt
+*.onnx
+*.gguf
+*.safetensors
+*.h5
+*.ckpt
+
+# Generated run/comparison/report artifacts. The directories are kept via
+# .gitkeep; their generated contents are not committed. Small curated example
+# artifacts may be force-added explicitly (git add -f) when useful for docs.
+results/runs/*
+results/comparisons/*
+results/reports/*
+results/processed/*
+!results/**/.gitkeep
+
+# SQLite trace indexes (regenerable)
+*.sqlite
+*.sqlite3
+*.db
+
+# Logs and pid files
+logs/
+*.log
+*.pid
+
+# OS / editor cruft
+.DS_Store
+*.swp
+*~
