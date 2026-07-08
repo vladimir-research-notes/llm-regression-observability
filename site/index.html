@@ -32,7 +32,7 @@
   and not reducible to exact string matching, <strong>did a change make behavior
   worse — and how?</strong></p>
 
-  <p><span class="status done">status: Milestone 0 complete — package skeleton, <code>llmreg</code> CLI, first tests passing</span></p>
+  <p><span class="status done">status: Milestone 1 complete — typed data contracts in <code>schemas.py</code> with byte-stable serialization; 68 tests passing</span></p>
 
   <div class="callout">This is a reliability/evaluation framework, not a medical,
   legal, or security authority. All fixtures are synthetic. See
@@ -84,7 +84,8 @@
   <ul>
     <li>Project contract, plan, docs, milestone specs, and build harness — <strong>in place</strong>.</li>
     <li>Milestone 0 — package skeleton, <code>pyproject.toml</code> (dependency-free core), <code>llmreg</code> CLI (<code>version</code>, <code>check-env</code>), and 14 CPU-only tests — <strong>complete</strong>.</li>
-    <li>Schemas, fixtures, adapters, executor, evaluators, comparison, reports, observability, redaction — <em>built milestone by milestone (1–13)</em>.</li>
+    <li>Milestone 1 — typed data contracts in <code>schemas.py</code> (EvalCase, EvalSuite, RunRecord, tool/retrieval/error traces, MetricResult, ComparisonRecord, RegressionFlag, ReportSummary) with validation and byte-stable JSON; 54 schema tests — <strong>complete</strong>.</li>
+    <li>Fixtures, adapters, executor, evaluators, comparison, reports, observability, redaction — <em>built milestone by milestone (2–13)</em>.</li>
   </ul>
   <p>Track progress on the <a href="milestones.html">Milestones</a> page and
   <a href="results.html">Results</a>.</p>

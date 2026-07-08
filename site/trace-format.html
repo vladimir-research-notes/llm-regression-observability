@@ -31,7 +31,7 @@
   (append- and diff-friendly); plain JSON for single-object summaries. The full
   contract is <code>docs/TRACE_FORMAT.md</code>.</p>
 
-  <p><span class="status scaffold">status: contract defined; types implemented in Milestone 1</span></p>
+  <p><span class="status done">status: contract defined and implemented in <code>schemas.py</code> (Milestone 1) — round-trip and byte-stability under test</span></p>
 
   <h2>EvalCase</h2>
   <pre><code>case_id, version, prompt, input_payload, expected_properties,
@@ -73,11 +73,26 @@ latency_p50_delta, latency_p95_delta, cost_total_delta, clusters[]</code></pre>
     <li><strong>Redaction before persistence</strong> — text is masked before any write to <code>results/</code> or a report.</li>
   </ul>
 
+  <h2>Current implementation status</h2>
+  <p><strong>Milestone 1 complete.</strong> Every type above is a stdlib
+  <code>dataclass</code> in <code>schemas.py</code> with a shared base that gives
+  each model <code>to_dict()</code>, <code>to_json()</code> (sorted keys),
+  <code>from_dict()</code>, and <code>from_json()</code>. Validation is driven by
+  the field annotations: it coerces <code>int</code>&nbsp;→&nbsp;<code>float</code>
+  for float fields (so numeric artifacts never drift), and raises a
+  <code>SchemaError</code> — naming the offending path — on a missing required
+  field, an unknown field, a wrong type, or an out-of-vocabulary enum value
+  (<code>risk_category</code>, tool <code>status</code>, error <code>origin</code>,
+  <code>redaction_status</code>, flag <code>severity</code>/<code>attribution</code>).
+  <code>ModelTrace</code> is an alias of <code>RunRecord</code>. 54 tests cover
+  round-trip, rejection, and byte-stable output.</p>
+
   <h2>Relevant files</h2>
   <ul class="files">
     <li>docs/TRACE_FORMAT.md — the authoritative contract</li>
-    <li>src/llm_regression_observability/schemas.py — typed models</li>
-    <li>src/llm_regression_observability/traces/storage.py — JSONL read/write</li>
+    <li>src/llm_regression_observability/schemas.py — typed models (Milestone 1)</li>
+    <li>tests/test_schemas.py — round-trip, validation, and byte-stability tests</li>
+    <li>src/llm_regression_observability/traces/storage.py — JSONL read/write (later)</li>
   </ul>
 
   <h2>Open questions / limitations</h2>

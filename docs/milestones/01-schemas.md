@@ -1,6 +1,9 @@
 # Milestone 1 — Core schemas and trace model
 
-**Status: planned.**
+**Status: Complete.** All contracts in `schemas.py` implemented as stdlib
+dataclasses with type-driven validation and byte-stable `to_dict`/`to_json`/
+`from_dict`; 54 unit tests cover round-trip, rejection, and serialization
+stability (`python3 -m pytest -q` → 68 passed).
 
 ## Goal
 
