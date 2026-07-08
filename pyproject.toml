@@ -1,0 +1,70 @@
+# Packaging for llm-regression-observability.
+#
+# Hard constraint (CLAUDE.md / docs/PLAN.md §3): the core has NO runtime
+# dependencies — Python 3.12 standard library only. `pydantic` / `pandas` are
+# optional extras and must never be required to run the package or the tests.
+# `tests/test_scaffold_layout.py` enforces the empty `dependencies` list.
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-regression-observability"
+description = "CPU-first framework for detecting, explaining, and reporting regressions in LLM applications and agentic systems."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+authors = [{ name = "llm-regression-observability contributors" }]
+keywords = [
+    "llm",
+    "evaluation",
+    "regression-detection",
+    "observability",
+    "agents",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Testing",
+]
+# No runtime dependencies. This list must stay empty (stdlib-only core).
+dependencies = []
+dynamic = ["version"]
+
+[project.optional-dependencies]
+# Development tooling only — not needed to import or run the package.
+dev = ["pytest>=7", "ruff>=0.4"]
+# Optional acceleration/validation extras — never required by any code path.
+extras = ["pydantic>=2", "pandas>=2"]
+
+[project.scripts]
+llmreg = "llm_regression_observability.cli:main"
+
+[project.urls]
+Documentation = "https://example.invalid/llm-regression-observability"
+
+[tool.setuptools.dynamic]
+version = { attr = "llm_regression_observability.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# Sensible, non-fussy default: pyflakes, pycodestyle, import sorting,
+# pyupgrade, and a subset of bugbear. Ruff is optional (dev extra); the suite
+# never requires it.
+select = ["E", "F", "I", "UP", "B"]

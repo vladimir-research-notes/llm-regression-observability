@@ -32,11 +32,11 @@
   failure, no new commit, a dirty tree, or a failing test. Full specs live in
   <code>docs/milestones/</code>.</p>
 
-  <p><span class="status scaffold">status: contract &amp; harness ready; milestones not yet started</span></p>
+  <p><span class="status done">status: Milestone 0 complete (scaffold, CLI, first tests); Milestone 1 next</span></p>
 
   <ol class="milestones">
-    <li><span class="mtitle">Scaffold &amp; project contract</span>
-      <div class="mbody">Package skeleton, <code>pyproject.toml</code>, <code>llmreg</code> CLI stub, first CPU-only tests. Dependency-free core.</div></li>
+    <li><span class="mtitle">Scaffold &amp; project contract</span> <span class="status done">complete</span>
+      <div class="mbody">Package skeleton, <code>pyproject.toml</code> (dependency-free core), <code>llmreg</code> CLI (<code>version</code>, <code>check-env</code>) with a <code>python3 -m</code> entry, a <code>conftest.py</code> path shim, and 14 CPU-only tests (<code>test_smoke.py</code>, <code>test_scaffold_layout.py</code>). The layout test enforces the empty runtime-dependency list.</div></li>
     <li><span class="mtitle">Core schemas &amp; trace model</span>
       <div class="mbody">Typed contracts — EvalCase, RunRecord, ToolCallTrace, RetrievalTrace, MetricResult, ComparisonRecord, RegressionFlag, ReportSummary — with byte-stable serialization and round-trip tests.</div></li>
     <li><span class="mtitle">Fixture suites</span>

@@ -1,6 +1,8 @@
 # Milestone 0 — Scaffold and project contract
 
-**Status: planned.**
+**Status: Complete.** Package skeleton, `pyproject.toml` (dependency-free core),
+`llmreg` CLI (`version`, `check-env`), `python3 -m` entry, `conftest.py` shim,
+and 14 CPU-only tests are in place and passing.
 
 ## Goal
 
