@@ -28,9 +28,28 @@ future direction, not a current claim.
 
 ## Estimated, not measured, cost
 
-Token counts use a transparent char-based estimator and a fixture price table.
-Costs are **estimates for relative comparison**, not bills. Real tokenization and
-real pricing differ.
+Token counts use a transparent char-based estimator (~4 characters per token, no
+tokenizer) and a **synthetic price list** — `$0.003` per 1k input tokens and
+`$0.015` per 1k output tokens, in `executor.CostModel`. Those prices are
+placeholders in a plausible order of magnitude; they are not any vendor's real
+pricing, and nothing in the default path calls a paid API. Costs are **estimates
+for relative comparison**, not bills. Real tokenization and real pricing differ.
+
+Where an adapter supplies its own token counts or cost (the recorded fixtures
+do), the executor treats them as recorded inputs and does not overwrite them.
+`run_meta.json` reports `tokens_estimated_cases` and `cost_estimated_cases` so
+an artifact never hides which numbers were derived rather than recorded.
+
+## Recorded, not measured, latency
+
+`latency_ms` is a value the adapter reports, read from a fixture. The executor
+does **not** time the adapter. Wall-clock timing would put an ambient value into
+a scored field, so two runs on the same inputs would stop being byte-identical
+and every latency assertion would become flaky. The cost of this choice is real:
+the framework cannot currently detect a latency regression that exists only in
+wall-clock time on live infrastructure. It detects latency regressions *as
+reported by the trace source* — which is what an imported production trace or a
+live adapter (Milestone 11) would supply.
 
 ## Placeholder scorers
 

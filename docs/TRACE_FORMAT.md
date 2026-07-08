@@ -78,6 +78,56 @@ message: str
 origin: str                           # app | infra   (drives noise filtering)
 ```
 
+## RunMeta
+
+Sidecar for one run. Written to `results/runs/<run_id>/run_meta.json` by the run
+executor (`executor.py`), alongside the `run.jsonl` it describes.
+
+```
+run_id: str
+suite_id: str
+suite_path: str                       # repo-relative, so artifacts leak no paths
+adapter: str                          # mock | recorded | scripted-regression | api-stub
+app_version: str
+model_id: str                         # "(mixed)" if not constant across records
+prompt_version: str                   # "(mixed)" if not constant across records
+tool_version: str                     # "(mixed)" if not constant across records
+timestamp: str                        # "(mixed)" if not constant across records
+case_count: int
+input_tokens_total: int
+output_tokens_total: int
+cost_total_usd: float
+latency_ms_total: float               # summed recorded latency, never measured
+tool_call_count: int
+retrieval_source_count: int
+error_count: int
+app_error_count: int
+infra_error_count: int
+tokens_estimated_cases: int           # records whose tokens the executor derived
+cost_estimated_cases: int             # records whose cost the executor derived
+identity_overrides: list[str]         # provenance fields the caller forced
+cost_model: CostModel                 # { input_usd_per_1k, output_usd_per_1k }
+records_sha256: str                   # SHA-256 of run.jsonl's bytes
+llmreg_version: str
+```
+
+The totals are derived from the records, so the file is a self-check: recompute
+them from `run.jsonl` and they must agree, and `records_sha256` must equal the
+SHA-256 of that file. A `RunRecord`'s `run_id` always equals its run's `run_id`,
+so `(run_id, case_id)` is the artifact key.
+
+### Run identity vs. provenance
+
+`run_id` and `app_version` are **identity**: the executor forces them onto every
+record in a run. `model_id`, `prompt_version`, `tool_version` and `timestamp` are
+**provenance**: preserved exactly as the adapter reported them (the recorded
+adapter replays committed fixture values) unless the caller overrides them, in
+which case the field name appears in `identity_overrides`.
+
+`cost_estimate_usd` and the two token fields are recorded inputs when the adapter
+supplies them, and derived by the executor otherwise; `tokens_estimated_cases` /
+`cost_estimated_cases` say how many records took the derived path.
+
 ## MetricResult
 
 Emitted by evaluators; one per (case, metric).
@@ -145,7 +195,11 @@ clusters: list[FailureCluster]        # grouped failures
 ## Conventions
 
 - **Sorted keys, stable ordering.** JSON is serialized with sorted keys and a
-  fixed field order so diffs are meaningful and outputs are byte-stable.
+  fixed field order so diffs are meaningful and outputs are byte-stable. The one
+  place this is implemented is
+  `src/llm_regression_observability/traces/storage.py`: sorted keys, compact
+  separators for JSONL, `ensure_ascii=False`, explicit UTF-8, and an explicit
+  `\n` line ending including a trailing one.
 - **No ambient values.** Timestamps and seeds come from inputs, never from the
   clock or RNG at write time.
 - **Redaction before persistence.** Any text field that could contain a

@@ -96,6 +96,7 @@ src/llm_regression_observability/
   __init__.py            version + metadata
   schemas.py             typed data contracts (dataclasses + validation)
   cli.py                 `llmreg` argparse CLI
+  executor.py            run-suite executor: cases + adapter -> RunRecords
 
   datasets/   loader.py fixtures.py versioning.py
   traces/     model_trace.py tool_trace.py redaction.py storage.py

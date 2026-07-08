@@ -64,7 +64,8 @@ python3 -m pytest -q                         # CPU-only, offline test suite
 ./scripts/serve_site.sh                      # docs website on http://localhost:9001
 ```
 
-Once the milestones are implemented, the end-to-end flow is:
+The end-to-end flow. The first three steps run today (Milestones 2 and 4); the
+last two arrive with Milestones 6 and 7:
 
 ```bash
 llmreg validate-fixtures evals/fixtures
@@ -72,10 +73,17 @@ llmreg run-suite --suite evals/suites/smoke.yaml --adapter recorded \
     --app-version baseline  --out results/runs/
 llmreg run-suite --suite evals/suites/smoke.yaml --adapter scripted-regression \
     --app-version candidate --out results/runs/
+
 llmreg compare --baseline results/runs/<baseline> --candidate results/runs/<candidate> \
-    --out results/comparisons/
-llmreg report --comparison results/comparisons/<id> --out results/reports/regression_report.md
+    --out results/comparisons/                       # Milestone 6, not yet built
+llmreg report --comparison results/comparisons/<id> \
+    --out results/reports/regression_report.md       # Milestone 7, not yet built
 ```
+
+Without an editable install, the same runs are available as wrappers:
+`python3 scripts/02_run_baseline.py` and `python3 scripts/03_run_candidate.py`
+(both accept `--dry-run`). Each writes
+`results/runs/<run_id>/{run.jsonl,run_meta.json}`, byte-identical across runs.
 
 ## Design constraints
 

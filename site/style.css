@@ -113,6 +113,7 @@ a { color: var(--accent); }
 }
 .status.scaffold { color: var(--warn); }
 .status.done { color: var(--ok); }
+.status.partial { color: var(--warn); }
 .status.pending { color: var(--muted); }
 
 code, pre { font-family: var(--mono); font-size: 0.85rem; }

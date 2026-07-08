@@ -9,15 +9,17 @@ exercised end to end:
   than ``scripts/00_check_environment.py`` (the full host preflight); it exists
   so the CLI itself is testable and self-contained.
 
-Milestone 2 adds ``validate-fixtures``. Later milestones add ``run-suite``,
-``compare``, and ``report`` (see ``docs/PLAN.md``). This module stays
-dependency-free and calls no network, clock, or randomness in any scored path.
+Milestone 2 adds ``validate-fixtures``; Milestone 4 adds ``run-suite``. Later
+milestones add ``compare`` and ``report`` (see ``docs/PLAN.md``). This module
+stays dependency-free and calls no network, clock, or randomness in any scored
+path.
 """
 
 from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
+from pathlib import Path
 
 from . import __summary__, __version__
 
@@ -34,6 +36,18 @@ REQUIRED_STDLIB: tuple[str, ...] = (
     "statistics",
 )
 MIN_PYTHON: tuple[int, int] = (3, 12)
+
+# Mirrored here so ``build_parser()`` stays import-light: ``llmreg version`` must
+# not pay for the adapter/executor modules. ``tests/test_run_executor.py`` asserts
+# these stay in sync with ``adapters.ADAPTER_NAMES`` and ``executor.CostModel``.
+ADAPTER_CHOICES: tuple[str, ...] = (
+    "mock",
+    "recorded",
+    "scripted-regression",
+    "api-stub",
+)
+DEFAULT_COST_INPUT_PER_1K = 0.003
+DEFAULT_COST_OUTPUT_PER_1K = 0.015
 
 
 def _import_ok(name: str) -> bool:
@@ -104,6 +118,70 @@ def _cmd_validate_fixtures(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_run_suite(args: argparse.Namespace) -> int:
+    # Imported lazily so the cheap subcommands do not pay for the adapters.
+    from .executor import CostModel, ExecutorError, RunConfig, run_suite
+    from .schemas import SchemaError
+
+    config = RunConfig(
+        suite_path=Path(args.suite),
+        adapter=args.adapter,
+        app_version=args.app_version,
+        run_id=args.run_id,
+        model_id=args.model_id,
+        prompt_version=args.prompt_version,
+        tool_version=args.tool_version,
+        timestamp=args.timestamp,
+        cost_model=CostModel(
+            input_usd_per_1k=args.cost_input_per_1k,
+            output_usd_per_1k=args.cost_output_per_1k,
+        ),
+        recompute_cost=args.recompute_cost,
+        fixtures_path=Path(args.fixtures) if args.fixtures else None,
+        strict=not args.continue_on_error,
+    )
+    out_root = None if args.dry_run else Path(args.out)
+
+    try:
+        result = run_suite(config, out_root)
+    except (ExecutorError, SchemaError, OSError) as exc:
+        print(f"error            : {exc}")
+        print("result           : FAIL")
+        return 1
+
+    meta = result.meta
+    print(f"run id           : {meta.run_id}")
+    print(f"suite            : {meta.suite_id} ({meta.suite_path})")
+    print(f"adapter          : {meta.adapter}")
+    print(f"app version      : {meta.app_version}")
+    print(f"model id         : {meta.model_id}")
+    print(f"records          : {meta.case_count}")
+    print(
+        f"tokens           : {meta.input_tokens_total} in, "
+        f"{meta.output_tokens_total} out "
+        f"({meta.tokens_estimated_cases} estimated by executor)"
+    )
+    print(
+        f"cost estimate    : ${meta.cost_total_usd:.6f} "
+        f"({meta.cost_estimated_cases} estimated by executor)"
+    )
+    print(f"latency total    : {meta.latency_ms_total:.1f} ms (recorded, not measured)")
+    print(f"tool calls       : {meta.tool_call_count}")
+    print(f"retrieval sources: {meta.retrieval_source_count}")
+    print(
+        f"errors           : {meta.error_count} "
+        f"(app {meta.app_error_count}, infra {meta.infra_error_count})"
+    )
+    print(f"sha256(run.jsonl): {meta.records_sha256}")
+    if result.run_dir is None:
+        print("artifacts        : none written (--dry-run)")
+    else:
+        print(f"run records      : {result.run_path}")
+        print(f"run metadata     : {result.meta_path}")
+    print("result           : PASS")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the ``llmreg`` argument parser."""
     parser = argparse.ArgumentParser(prog="llmreg", description=__summary__)
@@ -135,6 +213,76 @@ def build_parser() -> argparse.ArgumentParser:
         help="path to evals/fixtures (or the repo root); default: repo fixtures",
     )
     p_fixtures.set_defaults(func=_cmd_validate_fixtures)
+
+    p_run = sub.add_parser(
+        "run-suite",
+        help="run a suite through an adapter and write results/runs/<run_id>/",
+    )
+    p_run.add_argument(
+        "--suite",
+        required=True,
+        help="path to a suite manifest, e.g. evals/suites/smoke.yaml",
+    )
+    p_run.add_argument(
+        "--adapter",
+        default="recorded",
+        choices=sorted(ADAPTER_CHOICES),
+        help="adapter to drive (default: recorded; api-stub is inert)",
+    )
+    p_run.add_argument(
+        "--app-version",
+        default="baseline",
+        help="label for the version under test (default: baseline)",
+    )
+    p_run.add_argument("--out", default="results/runs", help="output root directory")
+    p_run.add_argument(
+        "--run-id",
+        default=None,
+        help="run id / output directory (default: <suite>-<app-version>-<adapter>)",
+    )
+    p_run.add_argument(
+        "--model-id", default=None, help="override the model id on each record"
+    )
+    p_run.add_argument("--prompt-version", default=None, help="override prompt_version")
+    p_run.add_argument("--tool-version", default=None, help="override tool_version")
+    p_run.add_argument(
+        "--timestamp",
+        default=None,
+        help="recorded ISO-8601 timestamp (an input, never the ambient clock)",
+    )
+    p_run.add_argument(
+        "--cost-input-per-1k",
+        type=float,
+        default=DEFAULT_COST_INPUT_PER_1K,
+        help=f"synthetic input price per 1k tokens "
+        f"(default: {DEFAULT_COST_INPUT_PER_1K})",
+    )
+    p_run.add_argument(
+        "--cost-output-per-1k",
+        type=float,
+        default=DEFAULT_COST_OUTPUT_PER_1K,
+        help=f"synthetic output price per 1k tokens "
+        f"(default: {DEFAULT_COST_OUTPUT_PER_1K})",
+    )
+    p_run.add_argument(
+        "--recompute-cost",
+        action="store_true",
+        help="price every record with the cost model, ignoring adapter cost",
+    )
+    p_run.add_argument(
+        "--fixtures", default=None, help="fixtures root (default: the repo fixtures)"
+    )
+    p_run.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="execute and summarize without writing any artifact",
+    )
+    p_run.add_argument(
+        "--continue-on-error",
+        action="store_true",
+        help="record an infra error for a failing case instead of aborting the run",
+    )
+    p_run.set_defaults(func=_cmd_run_suite)
 
     return parser
 

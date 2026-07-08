@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
 
-from ..schemas import EvalCase, RunRecord, Schema, SchemaError
+from ..schemas import EvalCase, EvalSuite, RunRecord, Schema, SchemaError
 from ._yaml import load_yaml
 from .fixtures import (
     NO_REGRESSION,
@@ -30,6 +30,7 @@ __all__ = [
     "load_expectations",
     "load_suite_fixture",
     "load_suite_manifest",
+    "load_eval_suite",
     "SuiteManifest",
     "ManifestCaseRef",
 ]
@@ -197,6 +198,55 @@ def load_suite_manifest(path: Path | str) -> SuiteManifest:
         description=str(data.get("description", "")),
         thresholds=thresholds,
         cases=refs,
+    )
+
+
+def load_eval_suite(
+    path: Path | str, *, fixtures_path: Path | str | None = None
+) -> EvalSuite:
+    """Resolve a suite manifest into a runnable :class:`EvalSuite`.
+
+    A manifest names its cases as ``"<suite>/<case_id>"`` references; this walks
+    them in manifest order, pulls each :class:`EvalCase` out of
+    ``evals/fixtures/<suite>/cases.json``, and returns the ordered suite the run
+    executor consumes. Case files are read once per suite and cached for the
+    call.
+
+    Raises :class:`SchemaError` on an unknown suite, a dangling ``case_id``, or a
+    case listed twice (which would silently produce duplicate run records).
+    """
+    path = Path(path)
+    manifest = load_suite_manifest(path)
+    evals_root, _ = resolve_fixture_roots(fixtures_path)
+
+    cache: dict[str, dict[str, EvalCase]] = {}
+    cases: list[EvalCase] = []
+    seen: set[str] = set()
+    for ref in manifest.cases:
+        by_id = cache.get(ref.suite)
+        if by_id is None:
+            case_file = evals_root / ref.suite / "cases.json"
+            if not case_file.is_file():
+                raise SchemaError(
+                    f"{path}: unknown suite {ref.suite!r} (no {case_file})"
+                )
+            by_id = {c.case_id: c for c in load_cases(case_file)}
+            cache[ref.suite] = by_id
+        case = by_id.get(ref.case_id)
+        if case is None:
+            raise SchemaError(
+                f"{path}: {ref.suite}/{ref.case_id} not found in cases.json"
+            )
+        if case.case_id in seen:
+            raise SchemaError(f"{path}: duplicate case {ref.suite}/{ref.case_id}")
+        seen.add(case.case_id)
+        cases.append(case)
+
+    return EvalSuite(
+        suite_id=manifest.suite_id,
+        description=manifest.description,
+        thresholds=manifest.thresholds,
+        cases=cases,
     )
 
 

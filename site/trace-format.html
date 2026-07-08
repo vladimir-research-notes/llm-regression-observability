@@ -31,7 +31,7 @@
   (append- and diff-friendly); plain JSON for single-object summaries. The full
   contract is <code>docs/TRACE_FORMAT.md</code>.</p>
 
-  <p><span class="status done">status: contract defined and implemented in <code>schemas.py</code> (Milestone 1) — round-trip and byte-stability under test</span></p>
+  <p><span class="status done">status: contract implemented in <code>schemas.py</code> (M1) and persisted by <code>traces/storage.py</code> (M4) — round-trip and byte-stability under test</span></p>
 
   <h2>EvalCase</h2>
   <pre><code>case_id, version, prompt, input_payload, expected_properties,
@@ -52,6 +52,37 @@ retrieval_sources[], errors[], redaction_status</code></pre>
   <code>origin</code> (<code>app</code> | <code>infra</code>) — the field that
   drives harness-noise filtering.</p>
 
+  <h2>RunMeta</h2>
+  <pre><code>run_id, suite_id, suite_path, adapter, app_version,
+model_id, prompt_version, tool_version, timestamp,
+case_count, input_tokens_total, output_tokens_total, cost_total_usd,
+latency_ms_total, tool_call_count, retrieval_source_count,
+error_count, app_error_count, infra_error_count,
+tokens_estimated_cases, cost_estimated_cases,
+identity_overrides[], cost_model, records_sha256, llmreg_version</code></pre>
+  <p>The sidecar written next to each <code>run.jsonl</code>, at
+  <code>results/runs/&lt;run_id&gt;/run_meta.json</code> (Milestone 4). Its totals are
+  derived from the records, so the file is a self-check: recompute them from
+  <code>run.jsonl</code> and they must agree, and <code>records_sha256</code> must
+  equal the SHA-256 of that file's bytes. A provenance field that is not constant
+  across the run's records reads <code>"(mixed)"</code>.</p>
+
+  <h3>Identity vs. provenance</h3>
+  <p><code>run_id</code> and <code>app_version</code> are <strong>identity</strong>:
+  the executor forces them onto every record in a run, so
+  <code>(run_id, case_id)</code> is the artifact key. <code>model_id</code>,
+  <code>prompt_version</code>, <code>tool_version</code> and
+  <code>timestamp</code> are <strong>provenance</strong>: preserved exactly as the
+  adapter reported them — the recorded adapter replays committed fixture values —
+  unless the caller overrides them, in which case the field name appears in
+  <code>identity_overrides</code>.</p>
+  <p>The two token fields and <code>cost_estimate_usd</code> are recorded inputs
+  when the adapter supplies them and derived by the executor otherwise;
+  <code>tokens_estimated_cases</code> and <code>cost_estimated_cases</code> say how
+  many records took the derived path, so no artifact hides which numbers were
+  invented. <code>latency_ms</code> is always a recorded input — the executor never
+  times the adapter.</p>
+
   <h2>ComparisonRecord</h2>
   <pre><code>case_id, baseline_run_id, candidate_run_id, changed_fields[],
 score_delta, latency_delta, cost_delta, json_validity_delta,
@@ -68,7 +99,7 @@ latency_p50_delta, latency_p95_delta, cost_total_delta, clusters[]</code></pre>
 
   <h2>Conventions</h2>
   <ul>
-    <li><strong>Sorted keys, fixed field order</strong> → byte-stable, diff-friendly output.</li>
+    <li><strong>Sorted keys, fixed field order</strong> → byte-stable, diff-friendly output. Implemented once, in <code>traces/storage.py</code>: sorted keys, compact JSONL separators, <code>ensure_ascii=False</code>, explicit UTF-8, explicit <code>\n</code> (trailing included).</li>
     <li><strong>No ambient values</strong> — timestamps and seeds are inputs.</li>
     <li><strong>Redaction before persistence</strong> — text is masked before any write to <code>results/</code> or a report.</li>
   </ul>
@@ -86,13 +117,21 @@ latency_p50_delta, latency_p95_delta, cost_total_delta, clusters[]</code></pre>
   <code>redaction_status</code>, flag <code>severity</code>/<code>attribution</code>).
   <code>ModelTrace</code> is an alias of <code>RunRecord</code>. 54 tests cover
   round-trip, rejection, and byte-stable output.</p>
+  <p><strong>Milestone 4 complete.</strong> <code>traces/storage.py</code> is the
+  single place these types reach disk, and the run executor emits the first real
+  artifacts: <code>run.jsonl</code> and <code>run_meta.json</code> under
+  <code>results/runs/&lt;run_id&gt;/</code>. Readers validate every line against its
+  schema and report <code>path:lineno</code> on malformed input, so a corrupt
+  artifact fails at load rather than halfway down the pipeline.</p>
 
   <h2>Relevant files</h2>
   <ul class="files">
     <li>docs/TRACE_FORMAT.md — the authoritative contract</li>
     <li>src/llm_regression_observability/schemas.py — typed models (Milestone 1)</li>
+    <li>src/llm_regression_observability/traces/storage.py — byte-stable JSONL/JSON read/write (Milestone 4)</li>
+    <li>src/llm_regression_observability/executor.py — RunMeta and the run artifacts (Milestone 4)</li>
     <li>tests/test_schemas.py — round-trip, validation, and byte-stability tests</li>
-    <li>src/llm_regression_observability/traces/storage.py — JSONL read/write (later)</li>
+    <li>tests/test_run_executor.py — storage round-trip, artifact self-check, determinism</li>
   </ul>
 
   <h2>Open questions / limitations</h2>

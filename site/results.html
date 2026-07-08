@@ -26,11 +26,56 @@
 </header>
 <main>
   <h1>Results</h1>
-  <p><span class="status pending">status: pending — populated after the smoke run (Milestones 6 &amp; 12)</span></p>
+  <p><span class="status partial">status: partial — run artifacts are real (Milestone 4); detection waits on Milestones 5 &amp; 6</span></p>
 
-  <div class="callout warn">No results are claimed yet. This page is filled with
-  real, reproducible numbers once the run executor, evaluators, and comparison
-  engine exist and the smoke suite has been run baseline-vs-candidate offline.</div>
+  <div class="callout warn">No <em>detection</em> result is claimed yet. The table
+  below reports counts read off real run artifacts produced by the executor. The
+  scorers (Milestone 5) and the comparison engine (Milestone 6) do not exist yet,
+  so nothing here says a regression was found — only that the runs differ, and
+  how.</div>
+
+  <h2>Run artifacts (Milestone 4)</h2>
+  <p>Produced offline on the eight-case smoke suite by
+  <code>scripts/02_run_baseline.py</code> and
+  <code>scripts/03_run_candidate.py</code>, read off
+  <code>results/runs/&lt;run_id&gt;/run_meta.json</code>.</p>
+
+  <table>
+    <tr><th></th><th>baseline (<code>recorded</code>)</th><th>candidate (<code>scripted-regression</code>)</th><th>delta</th></tr>
+    <tr><td>records</td><td>8</td><td>8</td><td>0</td></tr>
+    <tr><td>input tokens (estimated)</td><td>1310</td><td>1310</td><td>0</td></tr>
+    <tr><td>output tokens (estimated)</td><td>445</td><td>445</td><td>0</td></tr>
+    <tr><td>cost estimate (synthetic prices)</td><td>$0.018700</td><td>$0.018700</td><td>$0.000000</td></tr>
+    <tr><td>latency total (recorded)</td><td>1690.0 ms</td><td>1940.0 ms</td><td>+250.0 ms</td></tr>
+    <tr><td>tool calls</td><td>6</td><td>5</td><td>−1</td></tr>
+    <tr><td>retrieval sources</td><td>2</td><td>3</td><td>+1</td></tr>
+    <tr><td>errors (app / infra)</td><td>0 / 0</td><td>1 / 1</td><td>+1 / +1</td></tr>
+  </table>
+
+  <p><code>sha256(run.jsonl)</code>: baseline <code>ee23bfde0137104f…</code>,
+  candidate <code>b486ff9e6dabd553…</code>.</p>
+
+  <p>Every delta traces to exactly one injected defect: the <code>+250 ms</code>
+  from <code>lc_latency_spike</code>, the dropped tool call from
+  <code>tu_wrong_tool</code>, the added (unsupported) source from
+  <code>re_unsupported_claim</code>, the <code>app</code> error from
+  <code>at_more_retries</code>, the <code>infra</code> error from
+  <code>at_infra_noise</code>. <code>sj_invalid_json</code> and
+  <code>rb_underrefuse</code> change <code>parsed_output</code> rather than a
+  count; <code>sj_control_reorder</code> is a control and changes nothing. Cost is
+  unchanged because the smoke suite carries no <code>cost_regression</code> case.
+  The candidate's token totals equal the baseline's because the scripted injectors
+  mutate outputs without re-estimating tokens — a documented limitation of the
+  fixture-derived candidates.</p>
+
+  <p><strong>Reproducibility.</strong> Two runs on the same fixtures, in separate
+  processes and into different output roots, produce byte-identical
+  <code>run.jsonl</code> and <code>run_meta.json</code>. The executor re-hashes
+  the file after writing and raises on any mismatch with its in-memory digest.</p>
+
+  <h2>Test status</h2>
+  <p><code>python3 -m pytest -q</code> → <strong>190 passed</strong>, CPU-only and
+  offline (14 scaffold + 54 schema + 25 fixtures + 46 adapters + 51 executor).</p>
 
   <h2>What will be reported</h2>
   <ul>
@@ -46,18 +91,25 @@
   </ul>
 
   <h2>Reproduction</h2>
+  <p>Steps 1–2 run today; steps 3–4 arrive with Milestones 6 and 7.</p>
   <pre><code>llmreg run-suite --suite evals/suites/smoke.yaml --adapter recorded \
     --app-version baseline  --out results/runs/
 llmreg run-suite --suite evals/suites/smoke.yaml --adapter scripted-regression \
     --app-version candidate --out results/runs/
+
 llmreg compare --baseline results/runs/&lt;baseline&gt; --candidate results/runs/&lt;candidate&gt; \
-    --out results/comparisons/
+    --out results/comparisons/                        # Milestone 6, not yet built
 llmreg report --comparison results/comparisons/&lt;id&gt; \
-    --out results/reports/regression_report.md</code></pre>
+    --out results/reports/regression_report.md        # Milestone 7, not yet built</code></pre>
+  <p>Without an editable install, use the wrappers
+  <code>python3 scripts/02_run_baseline.py</code> and
+  <code>python3 scripts/03_run_candidate.py</code>; both accept
+  <code>--dry-run</code> to execute and summarize without writing. Generated
+  <code>results/</code> contents are gitignored and regenerated on demand.</p>
   <p>All numbers are produced offline, CPU-only, and are byte-reproducible on the
   same fixtures. See <code>docs/RESULTS.md</code> and
   <code>docs/REPRODUCIBILITY.md</code>.</p>
 </main>
-<footer class="site">llm-regression-observability — research/engineering artifact. No results claimed until the smoke run.</footer>
+<footer class="site">llm-regression-observability — research/engineering artifact. Run artifacts are real; no detection result is claimed until the comparison engine exists.</footer>
 </body>
 </html>

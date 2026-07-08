@@ -31,13 +31,13 @@
   render into a report. Every stage writes inspectable JSON/JSONL artifacts so it
   can be re-run or examined on its own.</p>
 
-  <p><span class="status scaffold">status: contract defined; schemas (M1), fixtures (M2) and adapters (M3) implemented; executor onward across Milestones 4–8</span></p>
+  <p><span class="status scaffold">status: contract defined; schemas (M1), fixtures (M2), adapters (M3) and the run executor (M4) implemented; evaluators onward across Milestones 5–8</span></p>
 
   <h2>Pipeline</h2>
   <pre><code>evals/suites/*.yaml   ┌─────────────────────────────────────────┐
 evals/fixtures/*  ───▶│  RUN EXECUTOR (M4)                       │──▶ results/runs/&lt;run_id&gt;/
-adapters (M3/M11)     │  case → adapter → RunRecord + spans      │      run.jsonl, spans.jsonl
-                      │  estimate tokens/cost, record latency    │
+adapters (M3/M11)     │  case → adapter → RunRecord             │      run.jsonl, run_meta.json
+                      │  re-stamp identity, account tokens/cost │      (spans.jsonl: M8)
                       └────────────────┬────────────────────────┘
                                        │
 evaluators (M5)       ┌────────────────▼────────────────────────┐
@@ -63,7 +63,7 @@ observability (M8)    │  headline, per-category, worst cases,     │
 
   <h2>Package layout</h2>
   <pre><code>src/llm_regression_observability/
-  __init__.py     schemas.py      cli.py
+  __init__.py     schemas.py      cli.py      executor.py
   datasets/    loader.py versioning.py fixtures.py
   traces/      model_trace.py tool_trace.py redaction.py storage.py
   evaluators/  exact.py json_schema.py tool_calls.py evidence.py
@@ -111,6 +111,47 @@ observability (M8)    │  headline, per-category, worst cases,     │
   ground truth; the scripted adapter is an independent, mechanical generator of
   the same defect <em>categories</em>.</p>
 
+  <h2>Run executor (Milestone 4)</h2>
+  <p>The executor resolves a suite manifest into an ordered
+  <code>EvalSuite</code>, drives one adapter over every case, and writes
+  <code>results/runs/&lt;run_id&gt;/run.jsonl</code> (one <code>RunRecord</code> per
+  case) plus a <code>run_meta.json</code> sidecar carrying identity, totals, the
+  cost model applied, and the SHA-256 of the records. Three questions had to be
+  answered here rather than left to convention.</p>
+
+  <p><strong>Who owns run identity?</strong> The executor. Adapters emit
+  behavior — the recorded adapter in particular replays fixtures verbatim,
+  including each record's own per-case <code>run_id</code>. The executor
+  re-stamps: every record in a run carries the run's <code>run_id</code> and the
+  configured <code>app_version</code>, so <code>(run_id, case_id)</code> keys the
+  artifact and <code>ComparisonRecord.baseline_run_id</code> denotes exactly one
+  run. <code>model_id</code>, prompt/tool versions and <code>timestamp</code> are
+  <em>provenance</em>, not identity: preserved as the adapter reported them unless
+  overridden, with <code>RunMeta.identity_overrides</code> recording which the
+  caller forced. Absent an explicit <code>--model-id</code>, a synthetic run names
+  the adapter that produced it rather than a model it never called.</p>
+
+  <p><strong>Where does latency come from?</strong> The recorded input, never the
+  wall clock. Timing the adapter would put an ambient value into a scored field,
+  so artifacts would differ run to run and every latency assertion would become
+  flaky. The executor <em>records</em> latency; it does not <em>measure</em> it.
+  The cost of that choice is written down in
+  <a href="limitations.html">Limitations</a> rather than glossed.</p>
+
+  <p><strong>When are tokens and cost estimated?</strong> Only where the adapter
+  left them at zero — recorded fixture values are inputs, not defaults to
+  overwrite. <code>--recompute-cost</code> forces the cost model over every
+  record, so two runs can be priced under one model regardless of what their
+  adapters claimed. <code>run_meta.json</code> counts how many records took each
+  path, so an artifact never hides which numbers were derived.</p>
+
+  <p>Byte-stable persistence lives in exactly one module,
+  <code>traces/storage.py</code>: sorted keys, compact JSONL separators,
+  <code>ensure_ascii=False</code>, explicit UTF-8, and an explicit
+  <code>\n</code> line ending including a trailing one. "Two runs are
+  byte-identical" is therefore a property of one function rather than a
+  convention every caller must remember.</p>
+
   <h2>Deterministic by construction</h2>
   <p>No ambient <code>time</code>/<code>random</code>/<code>datetime.now()</code>
   in scored paths. Timestamps and seeds are inputs recorded in fixtures or run
@@ -118,27 +159,48 @@ observability (M8)    │  headline, per-category, worst cases,     │
   artifacts except for an explicit <code>run_id</code> — which is what lets
   "the injected regression was detected" be a stable test rather than a flaky
   one. The Milestone 3 candidate stream hashes to the same SHA-256 across
-  separate processes.</p>
+  separate processes, and the Milestone 4 run artifacts are byte-identical across
+  separate processes and output roots.</p>
+
+  <p>This is enforced, not merely asserted: a test parses each executor-path
+  module's AST and fails if it imports <code>time</code>, <code>datetime</code>,
+  <code>random</code>, <code>secrets</code>, <code>socket</code>,
+  <code>urllib</code>, <code>http</code>, or <code>requests</code>. The executor
+  also re-hashes <code>run.jsonl</code> after writing and raises if the bytes on
+  disk disagree with its in-memory digest.</p>
 
   <h2>Relevant files</h2>
   <ul class="files">
     <li>docs/PLAN.md · docs/TRACE_FORMAT.md · docs/OBSERVABILITY.md</li>
     <li>src/llm_regression_observability/adapters/ — base.py, mock_model.py, recorded_model.py, scripted_model.py, api_stub.py</li>
+    <li>src/llm_regression_observability/executor.py — RunConfig, RunMeta, CostModel, execute_suite / write_run / run_suite</li>
+    <li>src/llm_regression_observability/traces/storage.py — byte-stable JSONL/JSON readers and writers</li>
     <li>src/llm_regression_observability/ (per-stage modules above)</li>
+    <li>scripts/02_run_baseline.py · scripts/03_run_candidate.py — thin CLI wrappers</li>
     <li>tests/test_adapters.py — 46 tests (determinism, exact fixture replay, per-injector behavior, inert API stub)</li>
+    <li>tests/test_run_executor.py — 51 tests (suite loading, byte-stable storage, identity re-stamping, token/cost accounting, artifact self-check)</li>
   </ul>
 
   <h2>Test / result status</h2>
-  <p><code>python3 -m pytest -q</code> → 139 passed. The recorded adapter
+  <p><code>python3 -m pytest -q</code> → 190 passed. The recorded adapter
   reproduces all 52 committed fixture records exactly; every non-control case
-  receives a real injected defect and every true control receives none.</p>
+  receives a real injected defect and every true control receives none. The
+  executor turns the eight-case smoke suite into a baseline and a candidate run
+  whose only differences are the injected defects (see
+  <a href="results.html">Results</a>).</p>
 
   <h2>Open questions / limitations</h2>
   <p>The scaffold defines the contract; each stage is realized in its milestone.
-  The executor (Milestone 4) still has to decide whether replayed runs keep their
-  recorded <code>run_id</code>/<code>timestamp</code> or are re-identified per
-  run. There is no server or persistence layer beyond local files (an optional
-  SQLite trace index is regenerable). See <a href="limitations.html">Limitations</a>.</p>
+  Because the executor re-stamps run identity, a run's <code>run.jsonl</code> is
+  deliberately <em>not</em> byte-identical to the committed
+  <code>data/fixtures/*/baseline.jsonl</code>, whose records carry per-case
+  <code>run_id</code>s — Milestone 3's exact-replay guarantee holds one layer
+  down, at the adapter. The two smoke runs also differ in <code>model_id</code>
+  (<code>recorded-mock-v1</code> vs <code>scripted-regression-adapter</code>)
+  because provenance is preserved rather than faked, so Milestone 6 must compare
+  behavioral fields and treat identity separately. There is no server or
+  persistence layer beyond local files (an optional SQLite trace index is
+  regenerable). See <a href="limitations.html">Limitations</a>.</p>
 </main>
 <footer class="site">llm-regression-observability — research/engineering artifact. Built milestone by milestone.</footer>
 </body>
