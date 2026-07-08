@@ -31,7 +31,7 @@
   render into a report. Every stage writes inspectable JSON/JSONL artifacts so it
   can be re-run or examined on its own.</p>
 
-  <p><span class="status scaffold">status: contract defined; stages implemented across Milestones 1–8</span></p>
+  <p><span class="status scaffold">status: contract defined; schemas (M1), fixtures (M2) and adapters (M3) implemented; executor onward across Milestones 4–8</span></p>
 
   <h2>Pipeline</h2>
   <pre><code>evals/suites/*.yaml   ┌─────────────────────────────────────────┐
@@ -73,24 +73,72 @@ observability (M8)    │  headline, per-category, worst cases,     │
   adapters/    mock_model.py recorded_model.py scripted_model.py api_stub.py
   reports/     markdown.py html.py</code></pre>
 
+  <h2>Adapters (Milestone 3)</h2>
+  <p>An <strong>adapter</strong> is the only thing standing where a real model
+  would be. It takes an <code>EvalCase</code> and returns a <code>RunRecord</code>,
+  so every stage downstream runs with no model call and no network.</p>
+
+  <p>The contract deliberately splits <em>what the model produced</em> from
+  <em>which run this is</em>. <code>AdapterContext</code> holds run identity —
+  <code>app_version</code>, <code>model_id</code>, prompt/tool versions, and the
+  recorded <code>timestamp</code>. <code>AdapterResponse</code> holds behavior —
+  final and parsed output, tool calls, retrieval sources, errors, and
+  token/latency/cost estimates. <code>build_run_record()</code> joins the two.
+  Because the timestamp is an input rather than a call to the clock, determinism
+  is a property of the construction, not a convention someone must remember.</p>
+
+  <table>
+    <tr><th>Adapter</th><th>Role</th></tr>
+    <tr><td><code>MockModelAdapter</code></td><td>Fixed outputs for tests; a deterministic default per case.</td></tr>
+    <tr><td><code>RecordedModelAdapter</code></td><td>Replays the committed fixture runs verbatim, keyed by <code>(app_version, case_id)</code>. Baseline generator.</td></tr>
+    <tr><td><code>ScriptedRegressionAdapter</code></td><td>Injects one known defect into a clean baseline. Candidate generator, and the ground truth the detector is measured against.</td></tr>
+    <tr><td><code>ApiAdapterStub</code></td><td>Interface only. Disabled by default; raises either way until Milestone 11.</td></tr>
+  </table>
+
+  <p>The scripted adapter is two layers: fifteen small, pure <em>injectors</em>
+  (invalid JSON, dropped/wrong/extra tool, argument drift, order swap,
+  unsupported claim, dropped citation, refusal flip, added latency, added cost,
+  injected error), and an <em>injection plan</em> derived from the Milestone 2
+  <code>CaseExpectation</code> ground truth. A non-control case receives a
+  representative defect of its annotated category; an <code>infra</code>-attributed
+  case receives an <code>infra</code>-origin error — surfaced, but never a flag
+  (research question 9); a true control receives nothing at all. Each injector
+  moves exactly one dimension, which is what makes "only the annotated field
+  changed" an assertion rather than a hope.</p>
+
+  <p>The scripted candidates are <em>not</em> byte-identical to the recorded
+  candidates and do not claim to be. The recorded candidates remain the primary
+  ground truth; the scripted adapter is an independent, mechanical generator of
+  the same defect <em>categories</em>.</p>
+
   <h2>Deterministic by construction</h2>
   <p>No ambient <code>time</code>/<code>random</code>/<code>datetime.now()</code>
   in scored paths. Timestamps and seeds are inputs recorded in fixtures or run
   config. Two runs of the same suite on the same fixtures produce byte-identical
   artifacts except for an explicit <code>run_id</code> — which is what lets
   "the injected regression was detected" be a stable test rather than a flaky
-  one.</p>
+  one. The Milestone 3 candidate stream hashes to the same SHA-256 across
+  separate processes.</p>
 
   <h2>Relevant files</h2>
   <ul class="files">
     <li>docs/PLAN.md · docs/TRACE_FORMAT.md · docs/OBSERVABILITY.md</li>
+    <li>src/llm_regression_observability/adapters/ — base.py, mock_model.py, recorded_model.py, scripted_model.py, api_stub.py</li>
     <li>src/llm_regression_observability/ (per-stage modules above)</li>
+    <li>tests/test_adapters.py — 46 tests (determinism, exact fixture replay, per-injector behavior, inert API stub)</li>
   </ul>
+
+  <h2>Test / result status</h2>
+  <p><code>python3 -m pytest -q</code> → 139 passed. The recorded adapter
+  reproduces all 52 committed fixture records exactly; every non-control case
+  receives a real injected defect and every true control receives none.</p>
 
   <h2>Open questions / limitations</h2>
   <p>The scaffold defines the contract; each stage is realized in its milestone.
-  There is no server or persistence layer beyond local files (an optional SQLite
-  trace index is regenerable). See <a href="limitations.html">Limitations</a>.</p>
+  The executor (Milestone 4) still has to decide whether replayed runs keep their
+  recorded <code>run_id</code>/<code>timestamp</code> or are re-identified per
+  run. There is no server or persistence layer beyond local files (an optional
+  SQLite trace index is regenerable). See <a href="limitations.html">Limitations</a>.</p>
 </main>
 <footer class="site">llm-regression-observability — research/engineering artifact. Built milestone by milestone.</footer>
 </body>

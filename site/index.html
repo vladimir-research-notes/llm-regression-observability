@@ -32,7 +32,7 @@
   and not reducible to exact string matching, <strong>did a change make behavior
   worse — and how?</strong></p>
 
-  <p><span class="status done">status: Milestone 2 complete — six synthetic fixture suites (26 cases) with injected-defect ground truth and a stdlib fixture validator; 93 tests passing</span></p>
+  <p><span class="status done">status: Milestone 3 complete — deterministic mock / recorded / scripted-regression adapters and an inert API stub; 139 tests passing</span></p>
 
   <div class="callout">This is a reliability/evaluation framework, not a medical,
   legal, or security authority. All fixtures are synthetic. See
@@ -86,7 +86,8 @@
     <li>Milestone 0 — package skeleton, <code>pyproject.toml</code> (dependency-free core), <code>llmreg</code> CLI (<code>version</code>, <code>check-env</code>), and 14 CPU-only tests — <strong>complete</strong>.</li>
     <li>Milestone 1 — typed data contracts in <code>schemas.py</code> (EvalCase, EvalSuite, RunRecord, tool/retrieval/error traces, MetricResult, ComparisonRecord, RegressionFlag, ReportSummary) with validation and byte-stable JSON; 54 schema tests — <strong>complete</strong>.</li>
     <li>Milestone 2 — six synthetic fixture suites (26 cases: 18 injected defects + 8 controls) with per-case ground truth, a stdlib-only suite-manifest reader, and a fixture validator (<code>llmreg validate-fixtures</code>) covering schemas, referential integrity, real-defect and safety checks; 25 fixture tests — <strong>complete</strong>.</li>
-    <li>Adapters, executor, evaluators, comparison, reports, observability, redaction — <em>built milestone by milestone (3–13)</em>.</li>
+    <li>Milestone 3 — four deterministic adapters: <code>MockModelAdapter</code>, <code>RecordedModelAdapter</code> (replays the committed fixtures byte for byte), <code>ScriptedRegressionAdapter</code> (15 named injectors, planned from the ground-truth annotations), and an inert <code>ApiAdapterStub</code>; 46 adapter tests — <strong>complete</strong>.</li>
+    <li>Executor, evaluators, comparison, reports, observability, redaction — <em>built milestone by milestone (4–13)</em>.</li>
   </ul>
   <p>Track progress on the <a href="milestones.html">Milestones</a> page and
   <a href="results.html">Results</a>.</p>

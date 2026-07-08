@@ -32,7 +32,7 @@
   failure, no new commit, a dirty tree, or a failing test. Full specs live in
   <code>docs/milestones/</code>.</p>
 
-  <p><span class="status done">status: Milestones 0–2 complete (scaffold, CLI, tests; typed data contracts; fixture suites); Milestone 3 next</span></p>
+  <p><span class="status done">status: Milestones 0–3 complete (scaffold, CLI, tests; typed data contracts; fixture suites; deterministic adapters); Milestone 4 next</span></p>
 
   <ol class="milestones">
     <li><span class="mtitle">Scaffold &amp; project contract</span> <span class="status done">complete</span>
@@ -41,8 +41,8 @@
       <div class="mbody">Typed contracts — EvalCase, EvalSuite, RunRecord (alias ModelTrace), ToolCallTrace, RetrievalTrace, RetrievalDoc, ErrorRecord, MetricResult, ComparisonRecord, RegressionFlag, ReportSummary, FailureCluster — as stdlib dataclasses in <code>schemas.py</code>. Annotation-driven validation (missing/unknown field, wrong type, enum vocab, <code>int</code>→<code>float</code> coercion) raising <code>SchemaError</code>; byte-stable <code>to_json()</code> with sorted keys; 54 round-trip/rejection/stability tests.</div></li>
     <li><span class="mtitle">Fixture suites</span> <span class="status done">complete</span>
       <div class="mbody">Six synthetic suites (structured JSON, tool use, retrieval/evidence, refusal boundary, latency/cost, agent trace) — 26 cases: 18 injected defects + 8 negative controls. Cases (<code>EvalCase</code>) and per-case ground truth (<code>CaseExpectation</code>) live under <code>evals/fixtures/</code>; recorded baseline/candidate <code>RunRecord</code>s under <code>data/fixtures/</code>. A stdlib-only restricted-YAML reader parses <code>evals/suites/smoke.yaml</code>. The validator (<code>llmreg validate-fixtures</code> / <code>scripts/01_validate_fixtures.py</code>) checks schemas, referential integrity, that each injected defect actually differs from its baseline, manifest resolution, and a credential-like-string safety scan. 25 fixture tests.</div></li>
-    <li><span class="mtitle">Adapters</span>
-      <div class="mbody">MockModelAdapter, RecordedModelAdapter, ScriptedRegressionAdapter (injects known regressions), and an inert ApiAdapterStub. All deterministic.</div></li>
+    <li><span class="mtitle">Adapters</span> <span class="status done">complete</span>
+      <div class="mbody">Four deterministic adapters in <code>adapters/</code>. <code>AdapterContext</code> (run identity: <code>app_version</code>, model/prompt/tool versions, recorded timestamp) is kept separate from <code>AdapterResponse</code> (behavior: output, tool calls, retrieval, errors, tokens/latency/cost); <code>build_run_record()</code> joins them, so no scored path ever reads the clock. <code>RecordedModelAdapter</code> replays all 52 committed fixture records byte for byte. <code>ScriptedRegressionAdapter</code> applies one of 15 pure injectors (invalid JSON, dropped/wrong/extra tool, arg drift, order swap, unsupported claim, dropped citation, refusal flip, added latency/cost, injected error) to a clean baseline; its plan is derived from the Milestone 2 <code>CaseExpectation</code> ground truth, so non-controls get a defect of their annotated category, infra-attributed cases get an <code>infra</code>-origin error, and true controls are left untouched. <code>ApiAdapterStub</code> raises when disabled (the default) and still raises when enabled — no default path reaches a paid API. 46 adapter tests.</div></li>
     <li><span class="mtitle">Run-suite executor</span>
       <div class="mbody">Read cases → call adapter → record outputs, tool calls, retrieval, token/cost estimates, latency → write reproducible <code>results/runs/</code> traces.</div></li>
     <li><span class="mtitle">Evaluators</span>
