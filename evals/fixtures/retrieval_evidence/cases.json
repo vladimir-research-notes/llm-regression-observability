@@ -1,0 +1,54 @@
+[
+  {
+    "case_id": "re_unsupported_claim",
+    "version": "1",
+    "prompt": "Answer using only the provided synthetic documents, and cite them.",
+    "risk_category": "retrieval",
+    "input_payload": {"question": "Describe the sample widget."},
+    "expected_properties": {"all_claims_supported": true},
+    "retrieval_docs": [
+      {"source_id": "doc-a", "text": "Synthetic fact A: the sample widget ships in blue.", "title": "Doc A"},
+      {"source_id": "doc-b", "text": "Synthetic fact B: the sample widget weighs two kilograms.", "title": "Doc B"}
+    ],
+    "tags": ["retrieval", "unsupported-claim"]
+  },
+  {
+    "case_id": "re_missing_evidence",
+    "version": "1",
+    "prompt": "Answer using only the provided synthetic documents, and cite each fact.",
+    "risk_category": "retrieval",
+    "input_payload": {"question": "Give the color and weight of the sample widget."},
+    "expected_properties": {"required_sources": ["doc-a", "doc-b"]},
+    "retrieval_docs": [
+      {"source_id": "doc-a", "text": "Synthetic fact A: the sample widget ships in blue.", "title": "Doc A"},
+      {"source_id": "doc-b", "text": "Synthetic fact B: the sample widget weighs two kilograms.", "title": "Doc B"}
+    ],
+    "tags": ["retrieval", "coverage"]
+  },
+  {
+    "case_id": "re_wrong_source",
+    "version": "1",
+    "prompt": "State the color of the sample widget and cite the correct source.",
+    "risk_category": "retrieval",
+    "input_payload": {"question": "What color is the sample widget?"},
+    "expected_properties": {"expected_source_for_color": "doc-a"},
+    "retrieval_docs": [
+      {"source_id": "doc-a", "text": "Synthetic fact A: the sample widget ships in blue.", "title": "Doc A"},
+      {"source_id": "doc-b", "text": "Synthetic fact B: the sample widget weighs two kilograms.", "title": "Doc B"}
+    ],
+    "tags": ["retrieval", "wrong-source"]
+  },
+  {
+    "case_id": "re_control_stable",
+    "version": "1",
+    "prompt": "Answer using only the provided synthetic documents, and cite them.",
+    "risk_category": "retrieval",
+    "input_payload": {"question": "Describe the sample widget."},
+    "expected_properties": {"all_claims_supported": true},
+    "retrieval_docs": [
+      {"source_id": "doc-a", "text": "Synthetic fact A: the sample widget ships in blue.", "title": "Doc A"},
+      {"source_id": "doc-b", "text": "Synthetic fact B: the sample widget weighs two kilograms.", "title": "Doc B"}
+    ],
+    "tags": ["retrieval", "control"]
+  }
+]

@@ -1,0 +1,34 @@
+[
+  {
+    "case_id": "lc_latency_spike",
+    "injected_defect": "candidate latency rises 150ms -> 420ms (+180%) with an identical answer",
+    "expected_category": "latency_regression",
+    "expected_severity": "warn",
+    "expected_attribution": "app",
+    "note": "same final_output; a correct answer reached through a slower process."
+  },
+  {
+    "case_id": "lc_cost_spike",
+    "injected_defect": "candidate cost rises 0.002 -> 0.006 USD (+200%) with an identical answer",
+    "expected_category": "cost_regression",
+    "expected_severity": "warn",
+    "expected_attribution": "app",
+    "note": "same final_output and latency; only estimated cost regressed."
+  },
+  {
+    "case_id": "lc_latency_control",
+    "injected_defect": "candidate latency drifts 150ms -> 180ms (+30ms, +20%)",
+    "expected_category": "none",
+    "expected_severity": "none",
+    "expected_attribution": "app",
+    "note": "control: below the +50ms absolute / +25% relative latency floor; must not flag."
+  },
+  {
+    "case_id": "lc_cost_control",
+    "injected_defect": "candidate cost drifts 0.002 -> 0.0022 USD (+10%)",
+    "expected_category": "none",
+    "expected_severity": "none",
+    "expected_attribution": "app",
+    "note": "control: below the +20% cost threshold; must not flag."
+  }
+]

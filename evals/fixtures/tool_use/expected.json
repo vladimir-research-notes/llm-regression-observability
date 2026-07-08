@@ -1,0 +1,42 @@
+[
+  {
+    "case_id": "tu_wrong_tool",
+    "injected_defect": "candidate calls a disallowed tool (shell_exec) instead of summarize",
+    "expected_category": "tool_call_regression",
+    "expected_severity": "critical",
+    "expected_attribution": "app",
+    "note": "a tool outside allowed_tools was invoked."
+  },
+  {
+    "case_id": "tu_missing_tool",
+    "injected_defect": "candidate drops the required 'lookup' tool call",
+    "expected_category": "tool_call_regression",
+    "expected_severity": "critical",
+    "expected_attribution": "app",
+    "note": "an expected tool is missing from the sequence."
+  },
+  {
+    "case_id": "tu_arg_drift",
+    "injected_defect": "candidate weakens the search query arguments",
+    "expected_category": "tool_call_regression",
+    "expected_severity": "warn",
+    "expected_attribution": "app",
+    "note": "same tools and order, but the argument payload drifted."
+  },
+  {
+    "case_id": "tu_order_change",
+    "injected_defect": "candidate swaps the order of search and lookup",
+    "expected_category": "tool_call_regression",
+    "expected_severity": "warn",
+    "expected_attribution": "app",
+    "note": "tool set is unchanged but the call sequence differs."
+  },
+  {
+    "case_id": "tu_control_stable",
+    "injected_defect": "candidate keeps the same tools, order, and arguments",
+    "expected_category": "none",
+    "expected_severity": "none",
+    "expected_attribution": "app",
+    "note": "control: tool behavior is stable; must not flag."
+  }
+]

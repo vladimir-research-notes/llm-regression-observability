@@ -1,0 +1,34 @@
+[
+  {
+    "case_id": "at_more_retries",
+    "injected_defect": "candidate retries a failed search before succeeding; final answer unchanged",
+    "expected_category": "error_rate_regression",
+    "expected_severity": "warn",
+    "expected_attribution": "app",
+    "note": "correct-but-worse process: an app-origin tool retry raises the error/retry rate."
+  },
+  {
+    "case_id": "at_failed_tool",
+    "injected_defect": "candidate's compute tool fails, degrading the final answer",
+    "expected_category": "error_rate_regression",
+    "expected_severity": "warn",
+    "expected_attribution": "app",
+    "note": "an app-origin tool error appears that was not present at baseline."
+  },
+  {
+    "case_id": "at_infra_noise",
+    "injected_defect": "candidate hits an upstream gateway timeout (harness/infra), same final answer",
+    "expected_category": "none",
+    "expected_severity": "none",
+    "expected_attribution": "infra",
+    "note": "attribution=infra: the degradation is surfaced in the report but must NOT raise a flag (research question 9)."
+  },
+  {
+    "case_id": "at_control_stable",
+    "injected_defect": "candidate runs the same clean trace as baseline",
+    "expected_category": "none",
+    "expected_severity": "none",
+    "expected_attribution": "app",
+    "note": "control: no retries, no errors; must not flag."
+  }
+]

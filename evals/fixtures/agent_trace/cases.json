@@ -1,0 +1,42 @@
+[
+  {
+    "case_id": "at_more_retries",
+    "version": "1",
+    "prompt": "Run the synthetic multi-step plan and return the final answer.",
+    "risk_category": "agent",
+    "input_payload": {"plan": "search-then-fetch"},
+    "expected_properties": {"final_answer": "done", "max_tool_errors": 0},
+    "allowed_tools": ["search", "fetch", "compute"],
+    "tags": ["agent", "retries", "worse-process"]
+  },
+  {
+    "case_id": "at_failed_tool",
+    "version": "1",
+    "prompt": "Run the synthetic multi-step plan and return the final answer.",
+    "risk_category": "agent",
+    "input_payload": {"plan": "search-then-compute"},
+    "expected_properties": {"final_answer": "done", "max_tool_errors": 0},
+    "allowed_tools": ["search", "fetch", "compute"],
+    "tags": ["agent", "tool-error"]
+  },
+  {
+    "case_id": "at_infra_noise",
+    "version": "1",
+    "prompt": "Run the synthetic multi-step plan and return the final answer.",
+    "risk_category": "agent",
+    "input_payload": {"plan": "search-then-fetch"},
+    "expected_properties": {"final_answer": "done"},
+    "allowed_tools": ["search", "fetch", "compute"],
+    "tags": ["agent", "infra-noise", "attribution"]
+  },
+  {
+    "case_id": "at_control_stable",
+    "version": "1",
+    "prompt": "Run the synthetic multi-step plan and return the final answer.",
+    "risk_category": "agent",
+    "input_payload": {"plan": "search-then-fetch"},
+    "expected_properties": {"final_answer": "done", "max_tool_errors": 0},
+    "allowed_tools": ["search", "fetch", "compute"],
+    "tags": ["agent", "control"]
+  }
+]

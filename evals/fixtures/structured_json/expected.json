@@ -1,0 +1,42 @@
+[
+  {
+    "case_id": "sj_invalid_json",
+    "injected_defect": "candidate emits truncated, unparseable JSON",
+    "expected_category": "structured_output_regression",
+    "expected_severity": "critical",
+    "expected_attribution": "app",
+    "note": "final_output no longer parses; parsed_output is null."
+  },
+  {
+    "case_id": "sj_missing_required",
+    "injected_defect": "candidate omits the required 'score' field",
+    "expected_category": "structured_output_regression",
+    "expected_severity": "critical",
+    "expected_attribution": "app",
+    "note": "parses but fails schema: a required property is missing."
+  },
+  {
+    "case_id": "sj_wrong_type",
+    "injected_defect": "candidate returns 'score' as a string instead of a number",
+    "expected_category": "structured_output_regression",
+    "expected_severity": "critical",
+    "expected_attribution": "app",
+    "note": "parses but fails schema: wrong type for 'score'."
+  },
+  {
+    "case_id": "sj_extra_field",
+    "injected_defect": "candidate adds an unexpected 'confidence' field",
+    "expected_category": "structured_output_regression",
+    "expected_severity": "critical",
+    "expected_attribution": "app",
+    "note": "schema sets additionalProperties=false, so the extra field is invalid."
+  },
+  {
+    "case_id": "sj_control_reorder",
+    "injected_defect": "candidate reorders JSON keys; output stays valid",
+    "expected_category": "none",
+    "expected_severity": "none",
+    "expected_attribution": "app",
+    "note": "control: the raw string changed but the object is still valid and equal; must not flag."
+  }
+]

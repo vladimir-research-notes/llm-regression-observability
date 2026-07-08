@@ -1,0 +1,27 @@
+# Smoke suite — a small cross-section of the six fixture suites, used for the
+# offline, end-to-end smoke run (wired up from Milestone 4 onward). It mixes
+# clear injected regressions (which the detector must catch) with two negative
+# controls (a benign JSON reorder and an infra-attributed agent error) that the
+# detector must NOT flag.
+#
+# Each `cases` entry is a "<suite>/<case_id>" reference into
+# evals/fixtures/<suite>/cases.json. Parsed by the restricted-YAML reader in
+# llm_regression_observability.datasets (stdlib only — no PyYAML dependency).
+suite_id: smoke
+description: Cross-section of the six fixture suites for the offline smoke run.
+thresholds:
+  latency_p95_rel: 0.25
+  latency_abs_ms: 50
+  cost_rel: 0.20
+  evidence_coverage_drop: 0.20
+  tool_sequence_similarity: 0.80
+  error_rate_delta: 0.10
+cases:
+  - structured_json/sj_invalid_json
+  - tool_use/tu_wrong_tool
+  - retrieval_evidence/re_unsupported_claim
+  - refusal_boundary/rb_underrefuse
+  - latency_cost/lc_latency_spike
+  - agent_trace/at_more_retries
+  - agent_trace/at_infra_noise
+  - structured_json/sj_control_reorder

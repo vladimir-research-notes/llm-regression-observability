@@ -1,0 +1,97 @@
+[
+  {
+    "case_id": "sj_invalid_json",
+    "version": "1",
+    "prompt": "Summarize the synthetic report as a JSON object with title, sentiment, and score.",
+    "risk_category": "structured",
+    "input_payload": {"report": "Synthetic quarterly revenue note for fixtures."},
+    "expected_properties": {"json_parses": true, "json_schema_valid": true},
+    "json_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "sentiment", "score"],
+      "properties": {
+        "title": {"type": "string"},
+        "sentiment": {"type": "string", "enum": ["positive", "neutral", "negative"]},
+        "score": {"type": "number"}
+      }
+    },
+    "tags": ["structured", "json", "parse"]
+  },
+  {
+    "case_id": "sj_missing_required",
+    "version": "1",
+    "prompt": "Summarize the synthetic support ticket as a JSON object with title, sentiment, and score.",
+    "risk_category": "structured",
+    "input_payload": {"ticket": "Synthetic support ticket text for fixtures."},
+    "expected_properties": {"json_parses": true, "json_schema_valid": true},
+    "json_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "sentiment", "score"],
+      "properties": {
+        "title": {"type": "string"},
+        "sentiment": {"type": "string", "enum": ["positive", "neutral", "negative"]},
+        "score": {"type": "number"}
+      }
+    },
+    "tags": ["structured", "json", "required-field"]
+  },
+  {
+    "case_id": "sj_wrong_type",
+    "version": "1",
+    "prompt": "Summarize the synthetic release notes as a JSON object with title, sentiment, and score.",
+    "risk_category": "structured",
+    "input_payload": {"notes": "Synthetic release notes text for fixtures."},
+    "expected_properties": {"json_parses": true, "json_schema_valid": true},
+    "json_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "sentiment", "score"],
+      "properties": {
+        "title": {"type": "string"},
+        "sentiment": {"type": "string", "enum": ["positive", "neutral", "negative"]},
+        "score": {"type": "number"}
+      }
+    },
+    "tags": ["structured", "json", "type"]
+  },
+  {
+    "case_id": "sj_extra_field",
+    "version": "1",
+    "prompt": "Summarize the synthetic meeting recap as a JSON object with title, sentiment, and score.",
+    "risk_category": "structured",
+    "input_payload": {"recap": "Synthetic meeting recap text for fixtures."},
+    "expected_properties": {"json_parses": true, "json_schema_valid": true},
+    "json_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "sentiment", "score"],
+      "properties": {
+        "title": {"type": "string"},
+        "sentiment": {"type": "string", "enum": ["positive", "neutral", "negative"]},
+        "score": {"type": "number"}
+      }
+    },
+    "tags": ["structured", "json", "additional-properties"]
+  },
+  {
+    "case_id": "sj_control_reorder",
+    "version": "1",
+    "prompt": "Summarize the synthetic weekly status as a JSON object with title, sentiment, and score.",
+    "risk_category": "structured",
+    "input_payload": {"status": "Synthetic weekly status text for fixtures."},
+    "expected_properties": {"json_parses": true, "json_schema_valid": true},
+    "json_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "sentiment", "score"],
+      "properties": {
+        "title": {"type": "string"},
+        "sentiment": {"type": "string", "enum": ["positive", "neutral", "negative"]},
+        "score": {"type": "number"}
+      }
+    },
+    "tags": ["structured", "json", "control"]
+  }
+]

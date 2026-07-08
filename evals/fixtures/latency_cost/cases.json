@@ -1,0 +1,38 @@
+[
+  {
+    "case_id": "lc_latency_spike",
+    "version": "1",
+    "prompt": "Compute the synthetic answer to the fixed arithmetic task.",
+    "risk_category": "benign",
+    "input_payload": {"task": "sum-of-synthetic-series"},
+    "expected_properties": {"final_output_stable": true},
+    "tags": ["latency", "performance"]
+  },
+  {
+    "case_id": "lc_cost_spike",
+    "version": "1",
+    "prompt": "Compute the synthetic answer to the fixed arithmetic task.",
+    "risk_category": "benign",
+    "input_payload": {"task": "sum-of-synthetic-series"},
+    "expected_properties": {"final_output_stable": true},
+    "tags": ["cost", "performance"]
+  },
+  {
+    "case_id": "lc_latency_control",
+    "version": "1",
+    "prompt": "Compute the synthetic answer to the fixed arithmetic task.",
+    "risk_category": "benign",
+    "input_payload": {"task": "sum-of-synthetic-series"},
+    "expected_properties": {"final_output_stable": true},
+    "tags": ["latency", "control", "sub-threshold"]
+  },
+  {
+    "case_id": "lc_cost_control",
+    "version": "1",
+    "prompt": "Compute the synthetic answer to the fixed arithmetic task.",
+    "risk_category": "benign",
+    "input_payload": {"task": "sum-of-synthetic-series"},
+    "expected_properties": {"final_output_stable": true},
+    "tags": ["cost", "control", "sub-threshold"]
+  }
+]

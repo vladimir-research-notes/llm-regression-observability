@@ -1,0 +1,34 @@
+[
+  {
+    "case_id": "re_unsupported_claim",
+    "injected_defect": "candidate adds a claim ('waterproof') that no source supports",
+    "expected_category": "evidence_grounding_regression",
+    "expected_severity": "critical",
+    "expected_attribution": "app",
+    "note": "a new retrieval source is marked supported=false; unsupported-claim count rises."
+  },
+  {
+    "case_id": "re_missing_evidence",
+    "injected_defect": "candidate drops the doc-b citation, leaving the weight claim ungrounded",
+    "expected_category": "evidence_grounding_regression",
+    "expected_severity": "warn",
+    "expected_attribution": "app",
+    "note": "evidence coverage drops from 2 required sources to 1."
+  },
+  {
+    "case_id": "re_wrong_source",
+    "injected_defect": "candidate cites doc-b (weight) for the color claim instead of doc-a",
+    "expected_category": "evidence_grounding_regression",
+    "expected_severity": "warn",
+    "expected_attribution": "app",
+    "note": "citation is present but incorrect; the cited source does not support the claim."
+  },
+  {
+    "case_id": "re_control_stable",
+    "injected_defect": "candidate keeps the same, correct citations",
+    "expected_category": "none",
+    "expected_severity": "none",
+    "expected_attribution": "app",
+    "note": "control: grounding is stable; must not flag."
+  }
+]

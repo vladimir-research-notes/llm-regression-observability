@@ -32,15 +32,15 @@
   failure, no new commit, a dirty tree, or a failing test. Full specs live in
   <code>docs/milestones/</code>.</p>
 
-  <p><span class="status done">status: Milestones 0–1 complete (scaffold, CLI, tests; typed data contracts); Milestone 2 next</span></p>
+  <p><span class="status done">status: Milestones 0–2 complete (scaffold, CLI, tests; typed data contracts; fixture suites); Milestone 3 next</span></p>
 
   <ol class="milestones">
     <li><span class="mtitle">Scaffold &amp; project contract</span> <span class="status done">complete</span>
       <div class="mbody">Package skeleton, <code>pyproject.toml</code> (dependency-free core), <code>llmreg</code> CLI (<code>version</code>, <code>check-env</code>) with a <code>python3 -m</code> entry, a <code>conftest.py</code> path shim, and 14 CPU-only tests (<code>test_smoke.py</code>, <code>test_scaffold_layout.py</code>). The layout test enforces the empty runtime-dependency list.</div></li>
     <li><span class="mtitle">Core schemas &amp; trace model</span> <span class="status done">complete</span>
       <div class="mbody">Typed contracts — EvalCase, EvalSuite, RunRecord (alias ModelTrace), ToolCallTrace, RetrievalTrace, RetrievalDoc, ErrorRecord, MetricResult, ComparisonRecord, RegressionFlag, ReportSummary, FailureCluster — as stdlib dataclasses in <code>schemas.py</code>. Annotation-driven validation (missing/unknown field, wrong type, enum vocab, <code>int</code>→<code>float</code> coercion) raising <code>SchemaError</code>; byte-stable <code>to_json()</code> with sorted keys; 54 round-trip/rejection/stability tests.</div></li>
-    <li><span class="mtitle">Fixture suites</span>
-      <div class="mbody">Six synthetic suites (structured JSON, tool use, retrieval/evidence, refusal boundary, latency/cost, agent trace), each with baseline + candidate defects annotated by expected category, plus a fixture validator.</div></li>
+    <li><span class="mtitle">Fixture suites</span> <span class="status done">complete</span>
+      <div class="mbody">Six synthetic suites (structured JSON, tool use, retrieval/evidence, refusal boundary, latency/cost, agent trace) — 26 cases: 18 injected defects + 8 negative controls. Cases (<code>EvalCase</code>) and per-case ground truth (<code>CaseExpectation</code>) live under <code>evals/fixtures/</code>; recorded baseline/candidate <code>RunRecord</code>s under <code>data/fixtures/</code>. A stdlib-only restricted-YAML reader parses <code>evals/suites/smoke.yaml</code>. The validator (<code>llmreg validate-fixtures</code> / <code>scripts/01_validate_fixtures.py</code>) checks schemas, referential integrity, that each injected defect actually differs from its baseline, manifest resolution, and a credential-like-string safety scan. 25 fixture tests.</div></li>
     <li><span class="mtitle">Adapters</span>
       <div class="mbody">MockModelAdapter, RecordedModelAdapter, ScriptedRegressionAdapter (injects known regressions), and an inert ApiAdapterStub. All deterministic.</div></li>
     <li><span class="mtitle">Run-suite executor</span>

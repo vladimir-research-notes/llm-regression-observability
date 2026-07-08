@@ -9,9 +9,9 @@ exercised end to end:
   than ``scripts/00_check_environment.py`` (the full host preflight); it exists
   so the CLI itself is testable and self-contained.
 
-Later milestones add ``validate-fixtures``, ``run-suite``, ``compare``, and
-``report`` (see ``docs/PLAN.md``). This module stays dependency-free and calls
-no network, clock, or randomness in any scored path.
+Milestone 2 adds ``validate-fixtures``. Later milestones add ``run-suite``,
+``compare``, and ``report`` (see ``docs/PLAN.md``). This module stays
+dependency-free and calls no network, clock, or randomness in any scored path.
 """
 
 from __future__ import annotations
@@ -79,6 +79,31 @@ def _cmd_check_env(_args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def _cmd_validate_fixtures(args: argparse.Namespace) -> int:
+    # Imported lazily so ``version`` / ``check-env`` do not pay for it.
+    from .datasets.validation import validate_fixtures
+
+    report = validate_fixtures(args.path)
+    for suite in report.suites_checked:
+        print(f"suite            : {suite} (ok)")
+    if not report.suites_checked:
+        print("suite            : none found")
+    print(
+        f"cases            : {report.case_count} "
+        f"({report.defect_count} with injected defects, "
+        f"{report.control_count} controls)"
+    )
+    if report.issues:
+        print(f"issues           : {len(report.issues)}")
+        for issue in report.issues:
+            print(f"  - {issue.render()}")
+        print("result           : FAIL")
+        return 1
+    print("secrets scan     : clean (no credential-like patterns)")
+    print("result           : PASS")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the ``llmreg`` argument parser."""
     parser = argparse.ArgumentParser(prog="llmreg", description=__summary__)
@@ -98,6 +123,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="offline check of the interpreter and required stdlib modules",
     )
     p_env.set_defaults(func=_cmd_check_env)
+
+    p_fixtures = sub.add_parser(
+        "validate-fixtures",
+        help="validate the synthetic fixture suites (schemas, ground truth, safety)",
+    )
+    p_fixtures.add_argument(
+        "path",
+        nargs="?",
+        default=None,
+        help="path to evals/fixtures (or the repo root); default: repo fixtures",
+    )
+    p_fixtures.set_defaults(func=_cmd_validate_fixtures)
 
     return parser
 

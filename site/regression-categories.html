@@ -31,7 +31,7 @@
   threshold-driven — nothing is learned or fitted. Full rules in
   <code>docs/REGRESSION_DETECTION.md</code>.</p>
 
-  <p><span class="status scaffold">status: taxonomy defined; detector implemented in Milestone 6</span></p>
+  <p><span class="status done">status: taxonomy defined; ground-truth fixtures shipped (Milestone 2); detector implemented in Milestone 6</span></p>
 
   <h2>The eight categories</h2>
   <table>
@@ -63,6 +63,27 @@
   confidence — because a missed regression is worse than a noisy one. This is the
   mechanism behind research question&nbsp;#9.</p>
 
+  <h2>Ground-truth fixtures (Milestone 2)</h2>
+  <p>Each category is backed by a synthetic fixture suite whose candidate cases
+  carry a <em>known, injected</em> defect annotated with the category, severity,
+  and attribution a correct detector must produce. This is the oracle Milestone 6
+  asserts against — detection becomes a stable test, not a hope. There are
+  <strong>26 cases</strong>: 18 injected defects and 8 negative controls (benign
+  changes and sub-threshold drifts that must <em>not</em> flag).</p>
+  <table>
+    <tr><th>Suite</th><th>Risk category</th><th>Exercises</th></tr>
+    <tr><td><code>structured_json</code></td><td>structured</td><td><code>structured_output_regression</code> — invalid JSON, missing field, wrong type, extra field; + a valid-reorder control</td></tr>
+    <tr><td><code>tool_use</code></td><td>tool_use</td><td><code>tool_call_regression</code> — disallowed tool, missing tool, arg drift, order change; + a stable control</td></tr>
+    <tr><td><code>retrieval_evidence</code></td><td>retrieval</td><td><code>evidence_grounding_regression</code> — unsupported claim, dropped citation, wrong source; + a stable control</td></tr>
+    <tr><td><code>refusal_boundary</code></td><td>refusal</td><td><code>refusal_behavior_shift</code> — over-refusal, under-refusal, risk-label drift; + a stable control</td></tr>
+    <tr><td><code>latency_cost</code></td><td>benign</td><td><code>latency_regression</code>, <code>cost_regression</code>; + sub-threshold latency/cost controls</td></tr>
+    <tr><td><code>agent_trace</code></td><td>agent</td><td><code>error_rate_regression</code> (retries, failed tool); an <code>infra</code>-attributed control that must not flag; + a clean control</td></tr>
+  </table>
+  <p>Validate with <code>llmreg validate-fixtures</code> or
+  <code>python3 scripts/01_validate_fixtures.py evals/fixtures</code>: schemas,
+  referential integrity, each injected defect actually differing from its
+  baseline, and a credential-like-string safety scan.</p>
+
   <h2>Controlling false positives</h2>
   <ul>
     <li>Deterministic runs remove sampling variance.</li>
@@ -75,6 +96,10 @@
   <h2>Relevant files</h2>
   <ul class="files">
     <li>docs/REGRESSION_DETECTION.md</li>
+    <li>evals/fixtures/&lt;suite&gt;/cases.json, expected.json — cases + ground truth</li>
+    <li>data/fixtures/&lt;suite&gt;/baseline.jsonl, candidate.jsonl — recorded runs</li>
+    <li>evals/suites/smoke.yaml — smoke-run cross-section</li>
+    <li>src/llm_regression_observability/datasets/ — loaders + fixture validator</li>
     <li>src/llm_regression_observability/comparison/regression.py, clustering.py</li>
   </ul>
 </main>
