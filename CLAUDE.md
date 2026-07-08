@@ -121,6 +121,20 @@ questions/limitations. Update the site at every milestone.
 See `docs/PLAN.md` for the authoritative structure and milestone breakdown. Key
 package path: `src/llm_regression_observability/`. Console entry point: `llmreg`.
 
+## Autonomous runs and permissions
+
+The milestone runner is non-interactive but **never** uses
+`--dangerously-skip-permissions`. Two layers keep it safe:
+
+- `.claude/settings.json` (committed, reviewable, no secrets) allowlists the safe
+  dev commands the milestones need (`python3`, `pytest`, `git add/commit/...`,
+  `mkdir`, `chmod`, `sed`, `bash -n`, `./scripts/*`, …) and **denies** network,
+  `git push`/`remote`, `sudo`, `pip`/`npm` installs, and `rm -r*`. Anything
+  outside the allowlist still needs approval, so the runner halts rather than run
+  it. Personal overrides go in `.claude/settings.local.json` (gitignored).
+- The runner defaults to `--permission-mode acceptEdits` so file writes don't
+  prompt. Override via `CLAUDE_EXTRA_ARGS`.
+
 ## Local commands
 
 ```bash

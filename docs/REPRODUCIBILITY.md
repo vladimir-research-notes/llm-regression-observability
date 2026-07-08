@@ -84,5 +84,11 @@ testable assertion rather than a flaky one.
 ```
 
 The runner drives one milestone per `claude -p` invocation and stops on any of:
-agent failure, no new commit, dirty working tree, or a `pytest` failure. See the
-script header for cost-guard and permission options.
+agent failure, no new commit, dirty working tree, or a `pytest` failure.
+
+**Permissions.** The runner is non-interactive but never uses
+`--dangerously-skip-permissions`. `.claude/settings.json` (committed) allowlists
+the safe dev commands the milestones need and denies network / `git push` /
+`sudo` / installs / `rm -r*`; the runner defaults to `--permission-mode
+acceptEdits` for file writes. Override with `CLAUDE_EXTRA_ARGS`; tune cost/turn
+guards with `WEEKLY_BUDGET_USD` / `MAX_TURNS` (see the script header).

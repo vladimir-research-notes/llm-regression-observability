@@ -22,13 +22,20 @@ END="${2:-13}"
 TEMPLATE="docs/prompts/run-one-milestone-template.md"
 
 # --- Permissions -----------------------------------------------------------
-# The runner calls plain `claude -p`. Permissions come from your Claude Code
-# configuration. For an unattended run, pass extra flags via CLAUDE_EXTRA_ARGS,
-# e.g.:
-#   CLAUDE_EXTRA_ARGS="--permission-mode acceptEdits" ./scripts/run_all_milestones_with_claude.sh
-#   CLAUDE_EXTRA_ARGS="--dangerously-skip-permissions" ./scripts/run_all_milestones_with_claude.sh
-# Leave empty to use your interactive/default permission settings.
-CLAUDE_EXTRA_ARGS="${CLAUDE_EXTRA_ARGS:-}"
+# Non-interactive but NOT dangerous. Two layers:
+#   1. `.claude/settings.json` (committed) allowlists the safe dev commands the
+#      milestones need (python3, pytest, git add/commit/..., mkdir, chmod, ...)
+#      and denies network / push / destructive commands. Anything outside the
+#      allowlist still requires approval, so the runner halts rather than run it.
+#   2. `--permission-mode acceptEdits` (default below) auto-accepts file writes
+#      within the project so Edit/Write don't prompt.
+# We never use `--dangerously-skip-permissions`.
+#
+# Override CLAUDE_EXTRA_ARGS to change this (e.g. CLAUDE_EXTRA_ARGS="" to force
+# interactive approval of edits, or add flags). The `-` form keeps an explicit
+# empty override, only falling back to the default when the var is unset.
+DEFAULT_EXTRA_ARGS="--permission-mode acceptEdits"
+CLAUDE_EXTRA_ARGS="${CLAUDE_EXTRA_ARGS-$DEFAULT_EXTRA_ARGS}"
 
 # --- Cost / usage guard (best-effort) --------------------------------------
 # Set WEEKLY_BUDGET_USD to enable. Before each milestone the script stops if the

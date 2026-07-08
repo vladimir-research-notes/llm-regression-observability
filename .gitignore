@@ -1,6 +1,7 @@
-# Local Claude Code overrides and permissions (never commit local settings)
+# Personal Claude Code overrides (never commit local settings).
+# NOTE: .claude/settings.json IS committed on purpose — it holds the shared,
+# reviewable permission allowlist for the milestone runner (no secrets).
 .claude/settings.local.json
-.claude/settings.json
 
 # Python virtual environments
 .venv/
