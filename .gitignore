@@ -61,6 +61,7 @@ results/runs/*
 results/comparisons/*
 results/reports/*
 results/processed/*
+results/external/*
 !results/**/.gitkeep
 
 # SQLite trace indexes (regenerable)

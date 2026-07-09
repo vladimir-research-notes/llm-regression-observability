@@ -1,0 +1,28 @@
+# External-import suite — the cases an imported trace answers end to end.
+#
+# Milestone 10 proves that a trace produced *outside* this repository flows through
+# the unchanged executor, evaluators, comparison engine and report generator. That
+# proof needs a suite, and the suite deliberately reuses cases from the committed
+# fixture suites rather than inventing new ones: an external system that runs your
+# evaluation cases hands you traces keyed by *your* case ids, and that is the whole
+# point of an import contract.
+#
+# Two cases carry an injected defect in data/external/code_agent_runtime/candidate.json
+# (a disallowed tool; a retried tool call) and two are negative controls that must
+# not flag. Thresholds mirror evals/suites/smoke.yaml so the imported comparison is
+# judged by the same tolerances as the native one.
+suite_id: external
+description: Cases answered by an imported external trace (Milestone 10 contract demo).
+thresholds:
+  latency_p95_rel: 0.25
+  latency_abs_ms: 50
+  cost_rel: 0.20
+  cost_abs_usd: 0.0005
+  evidence_coverage_drop: 0.20
+  tool_sequence_similarity: 0.80
+  error_rate_delta: 0.10
+cases:
+  - tool_use/tu_wrong_tool
+  - tool_use/tu_control_stable
+  - agent_trace/at_more_retries
+  - agent_trace/at_control_stable

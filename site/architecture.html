@@ -17,6 +17,7 @@
     <a href="metrics.html">Metrics</a>
     <a href="regression-categories.html">Regression categories</a>
     <a href="example-comparison.html">Example comparison</a>
+    <a href="integration-contracts.html">Integration contracts</a>
     <a href="results.html">Results</a>
     <a href="milestones.html">Milestones</a>
     <a href="limitations.html">Limitations</a>
@@ -31,13 +32,14 @@
   render into a report. Every stage writes inspectable JSON/JSONL artifacts so it
   can be re-run or examined on its own.</p>
 
-  <p><span class="status done">status: all three stages are built end to end — schemas (M1), fixtures (M2), adapters (M3), run executor (M4), evaluators (M5), the comparison engine (M6), the report generator (M7) and the observability layer (M8)</span></p>
+  <p><span class="status done">status: all three stages are built end to end — schemas (M1), fixtures (M2), adapters (M3), run executor (M4), evaluators (M5), the comparison engine (M6), the report generator (M7), the observability layer (M8), redaction (M9) and the import contracts (M10)</span></p>
 
   <h2>Pipeline</h2>
   <pre><code>evals/suites/*.yaml   ┌─────────────────────────────────────────┐
 evals/fixtures/*  ───▶│  RUN EXECUTOR (M4)                       │──▶ results/runs/&lt;run_id&gt;/
 adapters (M3/M11)     │  case → adapter → RunRecord             │      run.jsonl, run_meta.json
-                      │  re-stamp identity, account tokens/cost │
+data/external/*  ────▶│  re-stamp identity, account tokens/cost │      import_meta.json (M10)
+importers (M10)       │  redact before hashing (M9)             │
                       └────────────────┬────────────────────────┘
                                        │
 observability (M8)    ┌────────────────▼────────────────────────┐
@@ -63,6 +65,18 @@ observability (M8)    │  artifacts → ReportModel → md / html     │
                       │  headline, per-category, worst cases,     │
                       │  examples, latency/cost, what was withheld│
                       └─────────────────────────────────────────┘</code></pre>
+
+  <h3>Where the boundary sits (M10)</h3>
+  <p>An <em>importer</em> maps a foreign trace shape onto <code>RunRecord</code>, and
+  then stops. It is handed to the same <code>execute_suite()</code> an adapter is, as
+  <code>ImportedTraceAdapter</code>, so identity re-stamping, redaction-before-accounting,
+  cost pricing and <code>records_sha256</code> happen once, in one place. Everything
+  downstream — evaluators, comparison, spans, reports — cannot tell an imported run
+  from a native one, which is the property that makes the contract worth having.</p>
+  <pre><code>foreign document ─▶ importer ─▶ RunRecord ─▶ execute_suite() ─▶ run.jsonl
+                      │                          (unchanged from here down)
+                      └─▶ warnings, ignored / unknown / absent fields ─▶ import_meta.json</code></pre>
+  <p>See <a href="integration-contracts.html">Integration contracts</a>.</p>
 
   <h3>Where redaction sits (M9)</h3>
   <p><code>traces/redaction.py</code> is one pattern table read by four callers, and it

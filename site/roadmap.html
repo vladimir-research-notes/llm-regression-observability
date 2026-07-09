@@ -17,6 +17,7 @@
     <a href="metrics.html">Metrics</a>
     <a href="regression-categories.html">Regression categories</a>
     <a href="example-comparison.html">Example comparison</a>
+    <a href="integration-contracts.html">Integration contracts</a>
     <a href="results.html">Results</a>
     <a href="milestones.html">Milestones</a>
     <a href="limitations.html">Limitations</a>
@@ -55,9 +56,15 @@
     <li><strong>Grounding without a semantic model.</strong> Benchmark the stdlib
     evidence scorers against a learned-entailment baseline; state precisely where
     the placeholder must be replaced.</li>
-    <li><strong>Cross-system trace portability.</strong> Realize the import
-    contracts against a code-agent runtime, BioAgentBench, BioScientist OS, and
-    agent-control-bench; run the same detectors and reports on imported traces.</li>
+    <li><strong>Cross-system trace portability.</strong> The
+    <a href="integration-contracts.html">import contracts</a> exist (Milestone 10)
+    and are exercised on committed synthetic examples: an imported trace is scored,
+    compared and reported by the unchanged pipeline. What remains is <em>first
+    contact</em> — run the importers against real emitters from a code-agent
+    runtime, BioAgentBench, BioScientist OS and agent-control-bench, and measure how
+    much of each declared shape survives. The importers are hypotheses until then;
+    the four rules (account for every field, invent no measurement, guess no
+    attribution, import no secret) are what should survive the contact.</li>
   </ol>
 
   <h2>Non-claims</h2>

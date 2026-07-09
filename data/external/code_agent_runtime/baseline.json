@@ -1,0 +1,59 @@
+{
+  "schema": "code-agent-runtime/trace",
+  "schema_version": "1",
+  "session_id": "cars-external-baseline",
+  "agent_version": "ca-1.4.0",
+  "model": "synthetic-coder-1",
+  "recorded_at": "2026-06-01T12:00:00Z",
+  "tasks": [
+    {
+      "task_id": "tu_wrong_tool",
+      "elapsed_ms": 200.0,
+      "cost_usd": 0.002,
+      "usage": {"input_tokens": 150, "output_tokens": 60},
+      "steps": [
+        {"kind": "tool", "tool": "search", "input": {"query": "synthetic-001"}, "outcome": "ok"},
+        {"kind": "message", "text": "Found the synthetic order; summarizing it now."},
+        {"kind": "tool", "tool": "summarize", "input": {}, "outcome": "ok"}
+      ],
+      "result": {"text": "Synthetic order summary assembled from tool results."},
+      "failures": []
+    },
+    {
+      "task_id": "tu_control_stable",
+      "elapsed_ms": 200.0,
+      "cost_usd": 0.002,
+      "usage": {"input_tokens": 150, "output_tokens": 60},
+      "steps": [
+        {"kind": "tool", "tool": "search", "input": {"query": "synthetic-004"}, "outcome": "ok"},
+        {"kind": "tool", "tool": "summarize", "input": {}, "outcome": "ok"}
+      ],
+      "result": {"text": "Synthetic order summary assembled from tool results."},
+      "failures": []
+    },
+    {
+      "task_id": "at_more_retries",
+      "elapsed_ms": 300.0,
+      "cost_usd": 0.004,
+      "usage": {"input_tokens": 250, "output_tokens": 80},
+      "steps": [
+        {"kind": "tool", "tool": "search", "input": {"q": "synthetic"}, "outcome": "ok"},
+        {"kind": "tool", "tool": "fetch", "input": {"id": "1"}, "outcome": "ok"}
+      ],
+      "result": {"text": "Synthetic multi-step answer: done."},
+      "failures": []
+    },
+    {
+      "task_id": "at_control_stable",
+      "elapsed_ms": 300.0,
+      "cost_usd": 0.004,
+      "usage": {"input_tokens": 250, "output_tokens": 80},
+      "steps": [
+        {"kind": "tool", "tool": "search", "input": {"q": "synthetic"}, "outcome": "ok"},
+        {"kind": "tool", "tool": "fetch", "input": {"id": "1"}, "outcome": "ok"}
+      ],
+      "result": {"text": "Synthetic multi-step answer: done."},
+      "failures": []
+    }
+  ]
+}

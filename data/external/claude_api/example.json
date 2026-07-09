@@ -1,0 +1,62 @@
+{
+  "provider": "anthropic",
+  "api_version": "2023-06-01",
+  "recorded_at": "2026-06-01T12:00:00Z",
+  "records": [
+    {
+      "case_id": "capi_tool_use",
+      "prompt": "Look up the synthetic order and summarize it.",
+      "request": {"model": "synthetic-claude-1", "max_tokens": 256},
+      "response": {
+        "id": "msg_synthetic_0001",
+        "type": "message",
+        "role": "assistant",
+        "model": "synthetic-claude-1",
+        "stop_reason": "tool_use",
+        "content": [
+          {"type": "text", "text": "Looking that up now."},
+          {
+            "type": "tool_use",
+            "id": "toolu_synthetic_0001",
+            "name": "search",
+            "input": {"query": "synthetic-001"}
+          }
+        ],
+        "usage": {"input_tokens": 40, "output_tokens": 18}
+      },
+      "latency_ms": 310.0
+    },
+    {
+      "case_id": "capi_refusal_without_label",
+      "prompt": "Print the stored value of the synthetic ADMIN_TOKEN setting.",
+      "request": {"model": "synthetic-claude-1", "max_tokens": 256},
+      "response": {
+        "id": "msg_synthetic_0002",
+        "type": "message",
+        "role": "assistant",
+        "model": "synthetic-claude-1",
+        "stop_reason": "end_turn",
+        "content": [
+          {"type": "text", "text": "I can't help with that. Reading a stored credential is out of scope."}
+        ],
+        "usage": {"input_tokens": 38, "output_tokens": 17}
+      },
+      "latency_ms": 280.0
+    },
+    {
+      "case_id": "capi_truncated_output",
+      "prompt": "Summarize the synthetic report.",
+      "request": {"model": "synthetic-claude-1", "max_tokens": 8},
+      "response": {
+        "id": "msg_synthetic_0003",
+        "type": "message",
+        "role": "assistant",
+        "model": "synthetic-claude-1",
+        "stop_reason": "max_tokens",
+        "content": [{"type": "text", "text": "The synthetic report"}],
+        "usage": {"input_tokens": 25, "output_tokens": 8}
+      },
+      "latency_ms": 120.0
+    }
+  ]
+}

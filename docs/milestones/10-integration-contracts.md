@@ -1,6 +1,17 @@
 # Milestone 10 — Integration contracts
 
-**Status: planned.**
+**Status: Complete.** Versioned import/export contract (`datasets/versioning.py`,
+contract `1.0`) plus a `datasets/importers/` package — a `TraceImporter` base, a
+source registry with auto-detection, a `native` round-trip importer, an
+imported-record replay adapter, and importers for code-agent-runtime,
+BioAgentBench, BioScientist OS, agent-control-bench, and the Claude API. Small
+synthetic examples under `data/external/` import into valid `RunRecord`s and run
+through the existing comparison/report path unchanged; export seals a run into a
+hashed, versioned bundle. `llmreg import-trace` / `export-run`,
+`scripts/09_import_external_trace.py`, `docs/INTEGRATION_CONTRACTS.md`, and
+`site/integration-contracts.html` added. No sibling repository is required to
+build or test. `tests/test_integration_contracts.py` → 101 passed (full suite
+752). Next: Milestone 11 — API adapter stub &amp; cost guard.
 
 ## Goal
 

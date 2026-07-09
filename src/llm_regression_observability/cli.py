@@ -11,8 +11,9 @@ exercised end to end:
 
 Milestone 2 adds ``validate-fixtures``; Milestone 4 adds ``run-suite``; Milestone
 6 adds ``compare``; Milestone 7 adds ``report``; Milestone 8 adds ``aggregate``;
-Milestone 9 adds ``scan-secrets``. This module stays dependency-free and calls no
-network, clock, or randomness in any scored path.
+Milestone 9 adds ``scan-secrets``; Milestone 10 adds ``import-trace`` and
+``export-run``. This module stays dependency-free and calls no network, clock, or
+randomness in any scored path.
 """
 
 from __future__ import annotations
@@ -468,6 +469,187 @@ def _cmd_aggregate(args: argparse.Namespace) -> int:
     return 0
 
 
+#: ``import-trace`` / ``export-run`` defaults (Milestone 10).
+DEFAULT_IMPORT_OUT = "results/runs"
+DEFAULT_EXPORT_OUT = "results/external"
+
+#: ``--source auto`` means "the envelope names it". A bare source document does not,
+#: so it must be named explicitly — sniffing a shape is guessing where guessing costs
+#: the most (``datasets/importers/registry.py``).
+AUTO_SOURCE = "auto"
+
+#: Mirrored from ``datasets.importers.SOURCES`` so ``build_parser()`` stays
+#: import-light: ``llmreg version`` must not pay for the importer registry.
+#: ``tests/test_integration_contracts.py`` asserts the two stay in sync.
+IMPORT_SOURCE_CHOICES: tuple[str, ...] = (
+    "agent_control_bench",
+    "bioagentbench",
+    "bioscientist_os",
+    "claude_api",
+    "code_agent_runtime",
+    "llmreg",
+)
+
+
+def _cmd_import_trace(args: argparse.Namespace) -> int:
+    # Imported lazily so the cheap subcommands do not pay for the executor.
+    from .datasets.importers import ImportContext, TraceImportError, import_run
+    from .executor import CostModel
+    from .schemas import SchemaError
+
+    context = ImportContext(
+        app_version=args.app_version,
+        prompt_version=args.prompt_version or "",
+        tool_version=args.tool_version or "",
+        model_id=args.model_id or "",
+        timestamp=args.timestamp or "",
+        run_id=args.run_id or f"{args.app_version}",
+        strict=not args.lenient,
+    )
+    out_root = None if args.dry_run else Path(args.out)
+    try:
+        result = import_run(
+            Path(args.input),
+            Path(args.suite),
+            source=None if args.source == AUTO_SOURCE else args.source,
+            context=context,
+            out_root=out_root,
+            cost_model=CostModel(
+                input_usd_per_1k=args.cost_input_per_1k,
+                output_usd_per_1k=args.cost_output_per_1k,
+            ),
+            fixtures_path=Path(args.fixtures) if args.fixtures else None,
+        )
+    except (TraceImportError, SchemaError, OSError) as exc:
+        print(f"error            : {exc}")
+        print("result           : FAIL")
+        return 1
+
+    meta, run = result.meta, result.run.meta
+    print(f"document         : {meta.document}")
+    print(
+        f"source           : {meta.source} "
+        f"({meta.source_schema} {meta.source_version})"
+    )
+    if meta.contract_version:
+        print(f"contract         : {meta.contract_version} (envelope)")
+        print(f"record schema    : {meta.record_schema}")
+    else:
+        print("contract         : (bare source document, no envelope)")
+    print(f"mode             : {'strict' if meta.strict else 'lenient'}")
+    print(f"run id           : {run.run_id}")
+    print(f"suite            : {run.suite_id} ({run.suite_path})")
+    print(f"adapter          : {run.adapter}")
+    print(f"records          : {meta.case_count} ({', '.join(meta.imported_case_ids)})")
+    print(
+        f"cases from source: {len(meta.cases_from_source)}"
+        + ("" if meta.cases_from_source else " (the source carries no task definition)")
+    )
+    print(
+        f"tokens           : {run.input_tokens_total} in, "
+        f"{run.output_tokens_total} out "
+        f"({run.tokens_estimated_cases} estimated by executor)"
+    )
+    print(
+        f"cost estimate    : ${run.cost_total_usd:.6f} "
+        f"({run.cost_estimated_cases} estimated by executor)"
+    )
+    print(f"latency total    : {run.latency_ms_total:.1f} ms (recorded, not measured)")
+    print(
+        f"errors           : {run.error_count} "
+        f"(app {run.app_error_count}, infra {run.infra_error_count})"
+    )
+    print(
+        f"redaction        : {run.redacted_case_count} record(s) masked "
+        "(a flagged record refuses the import)"
+    )
+    print(
+        f"absent fields    : {len(meta.absent_fields)}"
+        + (f" ({', '.join(meta.absent_fields)})" if meta.absent_fields else "")
+    )
+    print(
+        f"ignored fields   : {len(meta.ignored_fields)}"
+        + (f" ({', '.join(meta.ignored_fields)})" if meta.ignored_fields else "")
+    )
+    print(
+        f"unmapped fields  : {len(meta.unknown_fields)}"
+        + (f" ({', '.join(meta.unknown_fields)})" if meta.unknown_fields else "")
+    )
+    print(f"warnings         : {len(meta.warnings)}")
+    for warning in meta.warnings:
+        print(f"  - {warning}")
+    print(f"sha256(run.jsonl): {run.records_sha256}")
+    if result.run_dir is None:
+        print("artifacts        : none written (--dry-run)")
+    else:
+        print(f"run records      : {result.run.run_path}")
+        print(f"run metadata     : {result.run.meta_path}")
+        print(f"import metadata  : {result.import_meta_path}")
+    print("result           : PASS")
+    return 0
+
+
+def _cmd_export_run(args: argparse.Namespace) -> int:
+    # Imported lazily so the cheap subcommands do not pay for the loaders.
+    from .comparison.baseline import resolve_suite_path
+    from .datasets import export_bundle, load_eval_suite, write_bundle
+    from .executor import RUN_JSONL, RUN_META_JSON, RunMeta
+    from .schemas import RunRecord, SchemaError
+    from .traces.storage import read_json, read_jsonl
+
+    run_dir = Path(args.run)
+    try:
+        meta: RunMeta = read_json(run_dir / RUN_META_JSON, RunMeta)
+        records = read_jsonl(run_dir / RUN_JSONL, RunRecord)
+    except (SchemaError, OSError) as exc:
+        print(f"error            : {run_dir}: not a run directory ({exc})")
+        print("result           : FAIL")
+        return 1
+
+    cases = []
+    if not args.no_cases:
+        try:
+            cases = load_eval_suite(resolve_suite_path(meta)).cases
+        except Exception as exc:  # noqa: BLE001 - suite resolution is best effort
+            print(
+                f"note             : suite not resolvable ({exc}); "
+                "exporting records only"
+            )
+
+    # A recorded input, never the clock: the run's own timestamp unless overridden.
+    exported_at = args.exported_at or meta.timestamp
+    bundle = export_bundle(
+        records,
+        exported_at=exported_at,
+        suite_id=meta.suite_id,
+        app_version=meta.app_version,
+        cases=cases or None,
+        notes=[
+            f"exported from run {meta.run_id!r} (adapter {meta.adapter!r})",
+            "all fixtures and traces in this repository are synthetic",
+        ],
+    )
+    default_out = Path(DEFAULT_EXPORT_OUT) / f"{meta.run_id}.json"
+    out = Path(args.out) if args.out else default_out
+
+    print(f"run id           : {meta.run_id}")
+    print(f"suite            : {meta.suite_id}")
+    print(f"contract         : {bundle.contract_version}")
+    print(f"source           : {bundle.source} ({bundle.source_schema})")
+    print(f"exported at      : {bundle.exported_at} (recorded input, not the clock)")
+    print(f"records          : {len(records)}")
+    print(f"cases            : {len(cases)}")
+    print(f"record schema    : {bundle.record_schema}")
+    print(f"sha256(payload)  : {bundle.payload_sha256}")
+    if args.dry_run:
+        print("artifacts        : none written (--dry-run)")
+    else:
+        write_bundle(out, bundle)
+        print(f"bundle           : {out}")
+    print("result           : PASS")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the ``llmreg`` argument parser."""
     parser = argparse.ArgumentParser(prog="llmreg", description=__summary__)
@@ -679,6 +861,119 @@ def build_parser() -> argparse.ArgumentParser:
         help="render and redaction-check without writing any artifact",
     )
     p_report.set_defaults(func=_cmd_report)
+
+    p_import = sub.add_parser(
+        "import-trace",
+        help="import an external trace against a suite and write "
+        "results/runs/<run_id>/",
+    )
+    p_import.add_argument(
+        "--input",
+        required=True,
+        help="trace document: a sealed llmreg bundle, or a bare source document",
+    )
+    p_import.add_argument(
+        "--suite",
+        required=True,
+        help="suite the trace answers, e.g. evals/suites/external.yaml; every case "
+        "it names must appear in the document",
+    )
+    p_import.add_argument(
+        "--source",
+        default=AUTO_SOURCE,
+        choices=(AUTO_SOURCE, *IMPORT_SOURCE_CHOICES),
+        help="which system emitted the document (default: auto — read it off the "
+        "bundle envelope; a bare document must name its source)",
+    )
+    p_import.add_argument(
+        "--app-version",
+        default="external",
+        help="label for the side under test (default: external)",
+    )
+    p_import.add_argument(
+        "--out", default=DEFAULT_IMPORT_OUT, help="output root directory"
+    )
+    p_import.add_argument(
+        "--run-id", default=None, help="run id / output directory name"
+    )
+    p_import.add_argument(
+        "--model-id", default=None, help="override the model id the source recorded"
+    )
+    p_import.add_argument(
+        "--prompt-version",
+        default=None,
+        help="prompt version the source does not carry (default: 'unknown')",
+    )
+    p_import.add_argument(
+        "--tool-version",
+        default=None,
+        help="override the tool version the source's own field maps to",
+    )
+    p_import.add_argument(
+        "--timestamp",
+        default=None,
+        help="recorded ISO-8601 timestamp, overriding the source's (never the clock)",
+    )
+    p_import.add_argument(
+        "--cost-input-per-1k",
+        type=float,
+        default=DEFAULT_COST_INPUT_PER_1K,
+        help=f"price a source that reports none (default: {DEFAULT_COST_INPUT_PER_1K})",
+    )
+    p_import.add_argument(
+        "--cost-output-per-1k",
+        type=float,
+        default=DEFAULT_COST_OUTPUT_PER_1K,
+        help="price a source that reports none "
+        f"(default: {DEFAULT_COST_OUTPUT_PER_1K})",
+    )
+    p_import.add_argument(
+        "--fixtures", default=None, help="fixtures root (default: the repo fixtures)"
+    )
+    p_import.add_argument(
+        "--lenient",
+        action="store_true",
+        help="warn instead of refusing on an unmapped source field, an unknown schema "
+        "version, or a record with no recorded duration",
+    )
+    p_import.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="import and summarize without writing any artifact",
+    )
+    p_import.set_defaults(func=_cmd_import_trace)
+
+    p_export = sub.add_parser(
+        "export-run",
+        help="wrap a run's records (and its cases) in a versioned, sealed trace bundle",
+    )
+    p_export.add_argument(
+        "--run",
+        required=True,
+        help="run directory written by `llmreg run-suite` or `llmreg import-trace`",
+    )
+    p_export.add_argument(
+        "--out",
+        default=None,
+        help=f"output file (default: {DEFAULT_EXPORT_OUT}/<run_id>.json)",
+    )
+    p_export.add_argument(
+        "--exported-at",
+        default=None,
+        help="recorded ISO-8601 export timestamp (default: the run's own timestamp). "
+        "Never the wall clock — two exports of one run must be byte-identical",
+    )
+    p_export.add_argument(
+        "--no-cases",
+        action="store_true",
+        help="export records only; the consumer is expected to have the suite",
+    )
+    p_export.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="build and summarize the bundle without writing it",
+    )
+    p_export.set_defaults(func=_cmd_export_run)
 
     return parser
 

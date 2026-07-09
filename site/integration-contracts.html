@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Integration contracts — llm-regression-observability</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site">
+  <a class="brand" href="index.html">llm-regression-observability</a>
+  <div class="tagline">A CPU-first framework for detecting, explaining, and reporting regressions in LLM applications and agentic systems.</div>
+  <nav class="site">
+    <a href="index.html">Overview</a>
+    <a href="architecture.html">Architecture</a>
+    <a href="trace-format.html">Trace format</a>
+    <a href="metrics.html">Metrics</a>
+    <a href="regression-categories.html">Regression categories</a>
+    <a href="example-comparison.html">Example comparison</a>
+    <a href="integration-contracts.html" class="active">Integration contracts</a>
+    <a href="results.html">Results</a>
+    <a href="milestones.html">Milestones</a>
+    <a href="limitations.html">Limitations</a>
+    <a href="safety.html">Safety</a>
+    <a href="roadmap.html">Roadmap</a>
+  </nav>
+</header>
+<main>
+  <h1>Integration contracts</h1>
+  <p class="lede">A trace produced outside this repository enters through an
+  <em>importer</em>, which maps it onto <code>RunRecord</code>. Everything
+  downstream — evaluators, comparison engine, span projection, report generator —
+  runs over the result <strong>unchanged</strong>. Adding a source is: write a
+  <code>TraceImporter</code>, register it. Nothing else moves.</p>
+
+  <p><span class="status done">status: Milestone 10 complete — a versioned envelope (contract <code>1.0</code>), six importers, <code>llmreg import-trace</code> / <code>llmreg export-run</code>, and an end-to-end demonstration in which two imported code-agent sessions are compared by the unchanged engine (<strong>2/2 injected defects detected, 0 false positives</strong> on the 2 controls); 100 tests in <code>tests/test_integration_contracts.py</code></span></p>
+
+  <div class="callout"><strong>No sibling repository is required, present, or
+  read.</strong> The five external trace shapes below are <em>declared by this
+  repository</em> and pinned against committed synthetic examples under
+  <code>data/external/</code>. That is a contract, not a reverse-engineered dump:
+  if a real emitter differs, the importer is the single place the difference is
+  absorbed, and its example fixture is where the disagreement becomes a test
+  failure instead of a silent mis-score.</div>
+
+  <h2>Brief explanation</h2>
+  <p>Everything before Milestone 10 assumed a trace was produced <em>here</em>, by
+  an adapter this repository owns. That assumption is what the framework has to
+  give up to be useful to anything else. Milestone 10 defines the contracts by
+  which a foreign trace crosses the boundary — and deliberately does not depend on
+  any of the systems it defines them for.</p>
+
+  <h2>Deeper technical explanation</h2>
+
+  <h3>The envelope (contract <code>1.0</code>)</h3>
+  <p>A bundle this repository exports is a <code>TraceBundle</code>. It makes four
+  claims an importer can check before reading a single record:</p>
+  <table>
+    <thead><tr><th>Field</th><th>Claim</th></tr></thead>
+    <tbody>
+      <tr><td><code>contract_version</code></td><td>which version of this envelope. An unknown version is refused, not guessed at.</td></tr>
+      <tr><td><code>source</code>, <code>source_schema</code>, <code>source_version</code></td><td>which system emitted the payload, under which of <em>its</em> schemas. Only that system's importer may read it.</td></tr>
+      <tr><td><code>record_schema</code></td><td>a fingerprint of <code>RunRecord</code> at export time — <code>7c781c9c2fad</code>.</td></tr>
+      <tr><td><code>payload_sha256</code></td><td>digest of the payload's canonical JSON. A bundle edited after export does not verify.</td></tr>
+    </tbody>
+  </table>
+  <p>The fingerprint is <strong>derived from the dataclass, not declared</strong>.
+  A hand-maintained version constant is the one nobody remembers to bump; this one
+  changes the moment a field is added, removed or retyped, and the test suite pins
+  the current value. A bundle whose fingerprint differs from the reading build's is
+  refused in strict mode: every downstream score would otherwise be computed
+  against a shape the exporter never wrote.</p>
+
+  <p><code>exported_at</code> is a <strong>recorded input</strong>.
+  <code>export_bundle()</code> requires one and reads no clock, so two exports of
+  one run are byte-identical — without which <code>payload_sha256</code> would be
+  useless as a change detector.</p>
+
+  <h3>Bare documents, and spans</h3>
+  <p>A sibling system will not wrap its traces in our envelope, and demanding that
+  it does would make the contract useless for its purpose. A bare source document
+  imports exactly as well, minus the four claims, provided the caller names the
+  source. Sniffing a shape to identify it is guessing precisely where guessing
+  costs the most, so it is not done.</p>
+  <p>Spans are <em>not</em> in the payload. <code>observability/spans.py</code>
+  derives a span tree from <code>(EvalCase, RunRecord, metrics)</code> as a pure
+  projection; shipping spans would ship a derivation the receiver can recompute and
+  cannot verify. An imported record projects into a valid span tree for free, and a
+  test proves it without any importer knowing what a span is.</p>
+
+  <h3>The four rules an importer obeys</h3>
+  <p>Mapping two vocabularies onto each other is where evaluation harnesses quietly
+  start lying. The contract is defined by what an importer may <strong>not</strong>
+  do.</p>
+
+  <h4>1. It may not drop a field in silence</h4>
+  <p>Every key of a source document is <em>mapped</em>, listed in the importer's
+  <code>ignored_fields</code> (a deliberate, documented drop — a chat transcript, a
+  workflow id), or <em>unknown</em>. An unknown key is a field the source grew after
+  the importer was written: in strict mode it raises; with <code>--lenient</code> it
+  lands in <code>unknown_fields</code> and in a warning. It never simply
+  disappears. Strict-by-default is the right trade for an evaluation framework —
+  you want to know a field appeared <em>before</em> you score against it.</p>
+
+  <h4>2. It may not invent a measurement</h4>
+  <p>A missing <code>latency_ms</code> imported as <code>0.0</code> is not missing
+  data. It is a <em>number</em>, and the comparison engine believes numbers:</p>
+  <pre><code>relative(0.0, 300.0) == -1.0          # zeroed candidate: "100% faster". No flag.
+relative(300.0, 0.0) == float("inf")  # zeroed baseline: unbounded latency_regression.</code></pre>
+  <p>So a record with no recorded duration is <strong>refused</strong> in strict
+  mode with that sentence, rather than scored. <code>claude_api</code> is the source
+  whose natural shape tempts an importer into inventing one: the API response
+  carries tokens and a stop reason, and the <em>client</em> is what held a
+  stopwatch. Cost is different and is not refused — the executor's
+  <code>CostModel</code> prices it, and a comparison across two price lists is
+  already disabled.</p>
+
+  <h4>3. It may not guess an attribution</h4>
+  <p><code>app</code> versus <code>infra</code> is this repository's distinction
+  (research question 9), not a field any external system emits. Each importer
+  publishes an <code>error_origins</code> table; an unmapped kind resolves to
+  <code>app</code> <em>and warns</em>. That direction is deliberate:
+  <code>infra</code> withholds regression flags, so defaulting there would let an
+  unrecognized error silently suppress a real regression. A false flag gets
+  investigated; a silent suppression does not.</p>
+
+  <h4>4. It may not import a secret</h4>
+  <p>Milestone 9 observed that <code>redaction_status="flagged"</code> is
+  unreachable on a trace this project wrote — the executor refuses to persist one —
+  and named the import boundary as where it becomes reachable. It does, here.
+  Content is masked in place and the record is marked <code>redacted</code>; a
+  certain-tier match in an identity field (a <code>case_id</code>, a
+  <code>model_id</code>, a tool <em>name</em>) is <code>flagged</code>, and the
+  import is refused naming the field and the pattern, <strong>never the
+  value</strong>. There is no safe repair: masking a join key corrupts every
+  downstream comparison, and keeping it writes the secret to disk.</p>
+
+  <h2>The six importers</h2>
+  <table>
+    <thead><tr><th>Source</th><th>What it is</th><th>Loses</th></tr></thead>
+    <tbody>
+      <tr><td><code>llmreg</code></td><td>this repo's own export; the identity map</td><td><strong>nothing</strong> (round-trip tested)</td></tr>
+      <tr><td><code>code_agent_runtime</code></td><td>a coding agent's session, as a step list</td><td>the message transcript, <code>session_id</code></td></tr>
+      <tr><td><code>bioagentbench</code></td><td>benchmark episodes: a task definition <em>and</em> an answer</td><td>the split label</td></tr>
+      <tr><td><code>bioscientist_os</code></td><td>a multi-node workflow, flattened</td><td>per-model attribution, per-node timing</td></tr>
+      <tr><td><code>agent_control_bench</code></td><td>refuse-or-answer trials and policy violations</td><td>—</td></tr>
+      <tr><td><code>claude_api</code></td><td><strong>recorded</strong> Messages-API responses</td><td>thinking blocks, message/tool ids</td></tr>
+    </tbody>
+  </table>
+
+  <p><code>llmreg</code> is the reference implementation. It is the only importer
+  that <em>can</em> be lossless, so it is the only one whose round trip is a
+  meaningful test: <code>import(export(records)) == records</code>, byte for byte.
+  The five foreign importers each lose something, and each says what.</p>
+
+  <h3>Three mappings worth naming</h3>
+  <ul>
+    <li><strong><code>code_agent_runtime</code>: tool order ignores messages.</strong>
+    <code>order_index</code> is a tool's position among <em>tool calls</em>, not
+    among steps. The tool evaluator diffs sequences of tools, and a message the
+    agent emitted between two of them is not a gap in that sequence. And
+    <code>agent_version</code> becomes <code>tool_version</code>, because a code
+    agent's tool surface ships with its binary — calling it a <em>prompt</em>
+    version would be a lie no test could catch, since both are opaque strings.</li>
+
+    <li><strong><code>bioagentbench</code>: seconds are not milliseconds.</strong>
+    <code>wallclock_seconds</code> is multiplied by 1000. A unit mismatch is the
+    quietest, most expensive bug an importer can have: it does not raise, it does
+    not look wrong, and it silently turns a 420&nbsp;ms answer into a 0.42&nbsp;ms
+    one — a latency improvement of three orders of magnitude against any baseline.</li>
+
+    <li><strong><code>agent_control_bench</code>: the decision has a source.</strong>
+    <code>response.refused</code> lands in <code>parsed_output</code>, which is
+    where <code>refusal_decision()</code> looks first. Failing that it falls back to
+    a lexical scan of the answer text — and records which it used. An import that
+    loses the label therefore degrades <em>visibly</em>, into
+    <code>decision_source="lexical_fallback"</code>, rather than silently into a
+    guess.</li>
+  </ul>
+
+  <h2>An imported trace, end to end</h2>
+  <p><code>evals/suites/external.yaml</code> names four cases drawn from the
+  committed fixture suites. That reuse is the point: <strong>an external system
+  that runs your evaluation cases hands you traces keyed by your case ids</strong>,
+  and comparing them against your baseline is the reason an import contract
+  exists.</p>
+
+  <pre><code>llmreg import-trace --source code_agent_runtime \
+    --input data/external/code_agent_runtime/baseline.json \
+    --suite evals/suites/external.yaml \
+    --app-version external-baseline --run-id ext-baseline --out results/runs
+
+llmreg import-trace --source code_agent_runtime \
+    --input data/external/code_agent_runtime/candidate.json \
+    --suite evals/suites/external.yaml \
+    --app-version external-candidate --run-id ext-candidate --out results/runs
+
+llmreg compare --baseline results/runs/ext-baseline \
+               --candidate results/runs/ext-candidate --out results/comparisons
+
+llmreg report --comparison results/comparisons/external-external-baseline-vs-external-candidate \
+              --out results/reports/external_regression_report.md</code></pre>
+
+  <p>Or in one step: <code>python3 scripts/09_import_external_trace.py</code>.</p>
+
+  <p>The candidate session carries two injected defects — a disallowed
+  <code>shell_exec</code> call, and a retried <code>search</code> — and two
+  unchanged control cases. The <strong>unchanged</strong> comparison engine, with
+  the same thresholds the smoke suite uses, finds:</p>
+
+  <table>
+    <thead><tr><th>Case</th><th>Flags</th></tr></thead>
+    <tbody>
+      <tr><td><code>tu_wrong_tool</code></td><td><code>tool_call_regression</code> (critical)</td></tr>
+      <tr><td><code>at_more_retries</code></td><td><code>error_rate_regression</code> (warn)</td></tr>
+      <tr><td><code>tu_control_stable</code></td><td>—</td></tr>
+      <tr><td><code>at_control_stable</code></td><td>—</td></tr>
+    </tbody>
+  </table>
+
+  <p>2 detected, 0 false positives on the 2 controls. No evaluator, comparison rule
+  or report template was touched to get there.</p>
+
+  <h3>Why an import is <em>executed</em>, not written</h3>
+  <p>An imported trace could have been written straight to <code>run.jsonl</code>.
+  It is not. <code>ImportedTraceAdapter</code> is a <code>ModelAdapter</code> whose
+  behavior is a record somebody else recorded — exactly as
+  <code>RecordedModelAdapter</code> replays a committed fixture — and it is handed
+  to the ordinary <code>execute_suite()</code>. That buys, unchanged: identity
+  re-stamping, redaction before accounting, token estimation and cost pricing where
+  the source carried none, and <code>records_sha256</code> over the bytes actually
+  written. A second artifact writer would be a second place those five decisions are
+  made, and the two would drift.</p>
+
+  <h3><code>import_meta.json</code></h3>
+  <p>Written next to <code>run.jsonl</code>. <code>run_meta.json</code> says what
+  the run <em>is</em>; this says what the import <strong>could not say</strong> —
+  warnings, ignored fields, unmapped fields, absent fields, and which cases the
+  source supplied a task definition for. A comparison that reads clean over a trace
+  half of which never arrived is exactly the lie an evaluation framework must not be
+  able to tell quietly, so the losses are an artifact rather than somebody's
+  terminal scrollback.</p>
+
+  <h2>Current implementation status</h2>
+  <p><strong>Implemented (Milestone 10).</strong> The envelope, the six importers,
+  <code>llmreg import-trace</code>, <code>llmreg export-run</code>, the
+  <code>external</code> suite, and the end-to-end demonstration all exist.
+  <code>python3 -m pytest -q</code> → <strong>752 passed</strong>, of which 100 are
+  in <code>tests/test_integration_contracts.py</code>.</p>
+
+  <h2>Relevant files</h2>
+  <ul>
+    <li><code>src/llm_regression_observability/datasets/versioning.py</code> — envelope, fingerprint, export/read</li>
+    <li><code>src/llm_regression_observability/datasets/importers/base.py</code> — the contract every importer holds to</li>
+    <li><code>src/llm_regression_observability/datasets/importers/registry.py</code> — dispatch; <code>SOURCES</code></li>
+    <li><code>src/llm_regression_observability/datasets/importers/runs.py</code> — <code>ImportedTraceAdapter</code>, <code>ImportMeta</code>, <code>import_run</code></li>
+    <li><code>src/llm_regression_observability/datasets/importers/&lt;source&gt;.py</code> — one module per source</li>
+    <li><code>data/external/&lt;source&gt;/*.json</code> — committed synthetic examples</li>
+    <li><code>evals/suites/external.yaml</code> — the four-case suite an imported trace answers</li>
+    <li><code>scripts/09_import_external_trace.py</code> — the end-to-end demonstration</li>
+    <li><code>tests/test_integration_contracts.py</code> — 100 tests</li>
+    <li><code>docs/INTEGRATION_CONTRACTS.md</code> — the full mapping tables</li>
+  </ul>
+
+  <h2>Open questions and limitations</h2>
+  <ul>
+    <li><strong>The five external shapes are declared here, not observed.</strong>
+    No sibling repository was read. Each importer is a hypothesis about a shape,
+    validated against a synthetic example this repository wrote. First contact with
+    a real emitter will move some of these tables; the four rules are what should
+    survive.</li>
+    <li><strong><code>ignored_fields</code> is documentation.</strong> The
+    mechanical check is per-call-site. A key deliberately ignored at one path is
+    still unknown at another — which is the behavior you want, but it means the
+    published list and the code are kept in step by review, not by a compiler.</li>
+    <li><strong>A lenient import can score a zeroed latency.</strong>
+    <code>--lenient</code> exists so a source with no duration is usable at all; it
+    does not make the resulting latency comparison meaningful.
+    <code>import_meta.json</code> names <code>latency_ms</code> in
+    <code>absent_fields</code>, and the operator has to read it.</li>
+    <li><strong>Nothing validates a source's own semantics.</strong> If
+    <code>bioagentbench</code> reports <code>wallclock_seconds</code> that are
+    actually milliseconds, the importer multiplies by 1000 and nothing notices. A
+    contract can pin a shape; it cannot pin a meaning.</li>
+    <li><strong>One suite per import.</strong> An imported document must cover
+    exactly the cases the named suite defines — no more, no fewer. A trace answering
+    a superset is refused rather than silently subsetted.</li>
+  </ul>
+
+  <p>See <a href="limitations.html">Limitations</a> and
+  <a href="safety.html">Safety</a>. The optional paid-API adapter — dry-run mode,
+  cost estimator, hard max-cost guard, response cache, explicit opt-in — is
+  Milestone 11; the <code>claude_api</code> importer here reads recorded documents
+  and <strong>never calls an API</strong>.</p>
+</main>
+<footer class="site">llm-regression-observability — research/engineering artifact. Built milestone by milestone.</footer>
+</body>
+</html>

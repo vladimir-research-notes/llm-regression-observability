@@ -360,6 +360,52 @@ suite metrics in three maps (`application_metrics`, `harness_metrics`,
 were incomplete or infra-attributed, and two digests (`spans_sha256`,
 `metrics_sha256`).
 
+## TraceBundle (Milestone 10)
+
+The versioned envelope a trace crosses the repository boundary in, defined in
+`datasets/versioning.py` and written by `llmreg export-run`:
+
+```
+contract_version   version of this envelope ("1.0"); an unknown one is refused
+source             which system emitted `payload` ("llmreg" for a native export)
+source_schema      that system's own schema id
+source_version     that system's own schema version
+exported_at        a recorded input; export_bundle() requires one, reads no clock
+suite_id           which evaluation suite the records answer
+app_version        which side of a comparison they are
+record_schema      fingerprint of the RunRecord field set at export time
+payload_sha256     digest of the payload's canonical JSON
+payload            source-shaped; only that source's importer may read it
+notes              free text
+```
+
+`record_schema` is **derived from the dataclass, not declared**
+(`record_schema_fingerprint()`), so changing `RunRecord` invalidates every exported
+bundle whether or not a constant was bumped. A bundle whose fingerprint differs
+from the reading build's is refused in strict mode.
+
+**Spans are not in the payload.** They are a pure projection of
+`(EvalCase, RunRecord, metrics)`; shipping them would ship a derivation the
+receiver can recompute and cannot verify.
+
+## ImportMeta (Milestone 10)
+
+Written to `results/runs/<run_id>/import_meta.json` by `llmreg import-trace`, beside
+`run.jsonl` and `run_meta.json`:
+
+```
+run_id, source, source_schema, source_version, contract_version, record_schema
+document           repo-relative path of the trace document
+suite_id, strict, case_count, imported_case_ids, cases_from_source
+warnings           defaulted attributions, flattened models, masked records
+ignored_fields     source fields deliberately not mapped
+unknown_fields     source fields this build has never seen (lenient mode)
+absent_fields      RunRecord fields this source structurally cannot fill
+```
+
+`run_meta.json` says what the run *is*. `import_meta.json` says what the import
+**could not say**. See [`INTEGRATION_CONTRACTS.md`](INTEGRATION_CONTRACTS.md).
+
 ## Conventions
 
 - **Sorted keys, stable ordering.** JSON is serialized with sorted keys and a

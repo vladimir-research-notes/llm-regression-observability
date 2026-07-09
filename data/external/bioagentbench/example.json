@@ -1,0 +1,84 @@
+{
+  "benchmark": "BioAgentBench",
+  "format_version": "0.3",
+  "split": "synthetic-dev",
+  "model": "synthetic-bio-1",
+  "recorded_at": "2026-06-01T12:00:00Z",
+  "episodes": [
+    {
+      "task": {
+        "id": "bab_grounded_answer",
+        "instruction": "Answer the synthetic question using only the provided passages, and cite each passage you rely on.",
+        "allowed_tools": ["search_corpus"],
+        "expected": {
+          "required_sources": ["doc-a"],
+          "all_claims_supported": true
+        },
+        "documents": [
+          {
+            "doc_id": "doc-a",
+            "title": "Synthetic passage A",
+            "text": "Synthetic passage A states that the example protocol has three steps."
+          },
+          {
+            "doc_id": "doc-b",
+            "title": "Synthetic passage B",
+            "text": "Synthetic passage B is unrelated filler about the example corpus."
+          }
+        ]
+      },
+      "answer": "The example protocol has three steps, per passage A.",
+      "citations": [
+        {
+          "doc_id": "doc-a",
+          "quote": "the example protocol has three steps",
+          "claim": "The example protocol has three steps.",
+          "supports_claim": true
+        }
+      ],
+      "tool_invocations": [
+        {"name": "search_corpus", "params": {"q": "example protocol steps"}, "error": null}
+      ],
+      "wallclock_seconds": 0.42,
+      "tokens": {"prompt": 180, "completion": 55},
+      "usd": 0.0012,
+      "errors": []
+    },
+    {
+      "task": {
+        "id": "bab_grader_noise",
+        "instruction": "Answer the synthetic question using only the provided passages, and cite each passage you rely on.",
+        "allowed_tools": ["search_corpus"],
+        "expected": {
+          "required_sources": ["doc-a"],
+          "all_claims_supported": true
+        },
+        "documents": [
+          {
+            "doc_id": "doc-a",
+            "title": "Synthetic passage A",
+            "text": "Synthetic passage A states that the example protocol has three steps."
+          }
+        ]
+      },
+      "answer": "The example protocol has three steps, per passage A.",
+      "citations": [
+        {
+          "doc_id": "doc-a",
+          "quote": "the example protocol has three steps",
+          "claim": "The example protocol has three steps.",
+          "supports_claim": true
+        }
+      ],
+      "tool_invocations": [
+        {"name": "search_corpus", "params": {"q": "example protocol steps"}, "error": null}
+      ],
+      "wallclock_seconds": 0.5,
+      "tokens": {"prompt": 180, "completion": 55},
+      "usd": 0.0012,
+      "errors": [
+        {"type": "grader_error", "message": "the benchmark grader crashed while scoring this episode"}
+      ]
+    }
+  ]
+}

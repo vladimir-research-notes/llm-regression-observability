@@ -1,0 +1,65 @@
+{
+  "system": "BioScientistOS",
+  "trace_version": "2026.1",
+  "workflow_id": "wf-synthetic-1",
+  "recorded_at": "2026-06-01T12:00:00Z",
+  "runs": [
+    {
+      "case": "bsos_plan_and_summarize",
+      "prompt": "Plan a synthetic query over the example table, run it, and summarize the result.",
+      "status": "completed",
+      "nodes": [
+        {
+          "type": "llm",
+          "model": "synthetic-planner-1",
+          "duration_ms": 120.0,
+          "usd": 0.0008,
+          "tokens": {"in": 90, "out": 20}
+        },
+        {
+          "type": "tool",
+          "tool": "run_query",
+          "arguments": {"table": "example_measurements", "limit": 10},
+          "duration_ms": 40.0,
+          "usd": 0.0,
+          "status": "ok"
+        },
+        {
+          "type": "llm",
+          "model": "synthetic-writer-1",
+          "duration_ms": 60.0,
+          "usd": 0.0004,
+          "tokens": {"in": 30, "out": 25}
+        }
+      ],
+      "output": {
+        "text": "Synthetic summary: the example table returned ten rows.",
+        "structured": {"row_count": 10}
+      }
+    },
+    {
+      "case": "bsos_failed_workflow",
+      "prompt": "Plan a synthetic query over the example table, run it, and summarize the result.",
+      "status": "failed",
+      "nodes": [
+        {
+          "type": "llm",
+          "model": "synthetic-planner-1",
+          "duration_ms": 110.0,
+          "usd": 0.0008,
+          "tokens": {"in": 90, "out": 20}
+        },
+        {
+          "type": "tool",
+          "tool": "run_query",
+          "arguments": {"table": "missing_table"},
+          "duration_ms": 15.0,
+          "usd": 0.0,
+          "status": "failed",
+          "error": "synthetic table not found"
+        }
+      ],
+      "output": {"text": ""}
+    }
+  ]
+}
