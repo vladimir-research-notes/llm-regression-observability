@@ -50,15 +50,50 @@
   <p>Token counts use a transparent char-based estimator and a fixture price
   table. Costs are estimates for relative comparison, not bills.</p>
 
+  <h2>Recorded, not measured, latency</h2>
+  <p><code>latency_ms</code> is a value the trace reports; the executor never
+  times the adapter, because a wall-clock read would put an ambient value into a
+  scored field. The framework detects latency regressions <em>as reported by the
+  trace source</em>, not as they occur on live infrastructure.</p>
+
   <h2>Placeholder scorers</h2>
-  <p>Explanation-quality and semantic similarity (<code>semantic_stub</code>) are
-  deterministic stand-ins, not learned judges. They are labeled as placeholders
-  in code and docs.</p>
+  <p><code>explanation_quality_placeholder</code> always emits <code>0.0</code>
+  and claims nothing. <code>semantic_similarity_stub</code> is lexical token
+  overlap — it rates a paraphrase low and a fluent contradiction high. Both are
+  in <code>NEVER_FLAG_METRICS</code>, so the comparison engine cannot raise a
+  regression from either, and both carry
+  <code>detail["placeholder"] = true</code>.</p>
+
+  <h2>Evidence support is recorded, not judged</h2>
+  <p>Nothing here reads a snippet and decides whether it entails a claim;
+  <code>supported</code> is a recorded field of the trace. An imported trace that
+  never sets it scores every claim as unsupported — the conservative direction.
+  <code>citation_correctness</code> checks only that a cited
+  <code>source_id</code> exists, so a real document cited for the wrong claim is
+  caught by <code>unsupported_claim_count</code> instead.</p>
+
+  <h2>Not every declared property is checked</h2>
+  <p><code>task_success</code> scores against a closed vocabulary of structural
+  property checks. Anything else a fixture declares is <em>advisory</em>: reported
+  in the metric's <code>detail</code>, not scored. Today exactly one fixture
+  property is advisory (<code>expected_source_for_color</code> — it is prose, and
+  the defect it describes is caught by the evidence metrics), and one is
+  <em>pairwise</em> (<code>final_output_stable</code>), which no single record can
+  answer. A test pins the advisory set, so it cannot grow silently.</p>
+
+  <h2>The JSON Schema validator is a subset</h2>
+  <p>The core is dependency-free, so <code>jsonschema</code> is not an option.
+  Keywords outside <code>SUPPORTED_KEYWORDS</code> (<code>$ref</code>,
+  <code>allOf</code>, <code>format</code>, …) are surfaced in
+  <code>detail["unsupported_keywords"]</code>, never silently ignored — ignoring
+  one would let an invalid document score as valid.</p>
 
   <h2>Heuristic attribution</h2>
-  <p>The application-vs-infrastructure split is rule-based and conservative. It
-  reduces harness-noise false positives but can misattribute an unusual failure;
-  it reports its confidence rather than claiming certainty.</p>
+  <p>The application-vs-infrastructure split is rule-based and conservative:
+  a record is attributed to infrastructure only when <em>every</em> error on it is
+  infra-origin, so one app error makes the whole record the application's fault.
+  It reduces harness-noise false positives but can misattribute an unusual
+  failure; it reports its confidence rather than claiming certainty.</p>
 
   <h2>No production deployment</h2>
   <p>No server, no auth, no multi-tenant story, no persistence beyond local files

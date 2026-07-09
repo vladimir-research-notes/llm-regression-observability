@@ -26,57 +26,134 @@
 </header>
 <main>
   <h1>Metrics</h1>
-  <p class="lede">Every metric is computed by a deterministic evaluator. Ratios
-  are normalized to [0, 1] (higher = better); everything else is reported in
-  native units (ms, USD, counts). Full definitions in
+  <p class="lede">Every metric is computed by a deterministic evaluator: a pure
+  function of <code>(EvalCase, RunRecord)</code>, with no clock, no RNG, no
+  network, and no learned model. Ratios are normalized to [0, 1]; everything else
+  is reported in native units (ms, USD, counts). Full definitions in
   <code>docs/METRICS.md</code>.</p>
 
-  <p><span class="status scaffold">status: defined; evaluators implemented in Milestone 5</span></p>
+  <p><span class="status done">status: Milestone 5 complete — ten scorer modules, 155 tests asserting exact expected scores on all 26 fixture cases</span></p>
 
   <h2>By dimension</h2>
   <table>
     <tr><th>Dimension</th><th>Metrics</th></tr>
     <tr><td>Final-answer success</td><td><code>task_success</code>, opt-in <code>exact_match</code></td></tr>
     <tr><td>Structured output</td><td><code>json_parse_success</code>, <code>json_schema_validity</code>, <code>field_diff_count</code></td></tr>
-    <tr><td>Tool-call drift</td><td><code>allowed_tool_ratio</code>, <code>tool_arg_diff</code>, <code>tool_sequence_similarity</code>, missing/extra tools</td></tr>
+    <tr><td>Tool-call drift</td><td><code>allowed_tool_ratio</code>, <code>tool_arg_diff</code>, <code>tool_sequence_similarity</code>, <code>missing_tools</code>, <code>extra_tools</code></td></tr>
     <tr><td>Evidence</td><td><code>citation_presence</code>, <code>citation_correctness</code>, <code>evidence_coverage</code>, <code>unsupported_claim_count</code></td></tr>
-    <tr><td>Refusal</td><td><code>refusal_match</code>, <code>risk_label_delta</code>, explanation-quality (placeholder)</td></tr>
-    <tr><td>Latency</td><td><code>latency_ms</code>, <code>latency_p50</code>/<code>p95</code>, deltas</td></tr>
-    <tr><td>Cost</td><td><code>cost_estimate_usd</code>, <code>cost_total_delta</code></td></tr>
-    <tr><td>Errors</td><td><code>error_rate</code> (app-origin), <code>retry_count</code>, <code>infra_error_rate</code> (separate)</td></tr>
+    <tr><td>Refusal</td><td><code>refusal_match</code>, <code>risk_label_match</code>, <code>risk_label_delta</code>, explanation quality (placeholder)</td></tr>
+    <tr><td>Latency</td><td><code>latency_ms</code>, suite-level <code>latency_p50</code>/<code>p95</code></td></tr>
+    <tr><td>Cost</td><td><code>cost_estimate_usd</code>, suite-level <code>cost_total_usd</code></td></tr>
+    <tr><td>Errors</td><td><code>app_error_count</code>, <code>infra_error_count</code> (separate), <code>retry_count</code>, <code>tool_error_rate</code></td></tr>
     <tr><td>Observability</td><td><code>trace_completeness</code></td></tr>
+  </table>
+
+  <h2>Two rules that govern the whole package</h2>
+  <p><strong>A metric that cannot be computed is not emitted.</strong> Scoring a
+  case that declares no <code>json_schema</code> as
+  <code>json_schema_validity == 0</code> would invent a failure. Each evaluator
+  states its precondition and stays silent otherwise; the comparison engine reads
+  an absent metric as <em>not applicable</em>, never as zero. The sharpest case:
+  <code>field_diff_count</code> is silent when the output did not parse, because a
+  field diff against an object that does not exist <em>is</em> the parse failure —
+  counting both would make one defect look like two.</p>
+
+  <p><strong>Direction is metadata, not convention.</strong>
+  <code>METRIC_DIRECTION</code> records whether each metric is better high, better
+  low, or neither, so the comparison engine flags "worse" without hard-coding a
+  sign. <code>NEVER_FLAG_METRICS</code> names what may never raise a regression at
+  all: the two placeholders, and the infra counters.</p>
+
+  <h2>Exact scores, not approximate ones</h2>
+  <p>Because every scorer is deterministic, the tests assert literals. A few of
+  them, baseline → candidate on the committed fixtures:</p>
+  <table>
+    <tr><th>Injected defect</th><th>Metric</th><th>Baseline</th><th>Candidate</th></tr>
+    <tr><td>truncated JSON</td><td><code>json_schema_validity</code></td><td>1</td><td>0</td></tr>
+    <tr><td>required field dropped</td><td><code>field_diff_count</code></td><td>0</td><td>1</td></tr>
+    <tr><td>tool call dropped</td><td><code>tool_sequence_similarity</code></td><td>1.0</td><td>0.8</td></tr>
+    <tr><td>tool order swapped</td><td><code>tool_sequence_similarity</code></td><td>1.0</td><td>0.5</td></tr>
+    <tr><td>search query weakened</td><td><code>tool_arg_diff</code> (pairwise)</td><td>—</td><td>0.254717</td></tr>
+    <tr><td>citation dropped</td><td><code>evidence_coverage</code></td><td>1.0</td><td>0.5</td></tr>
+    <tr><td>unsupported claim added</td><td><code>evidence_coverage</code></td><td>1.0</td><td>0.666667</td></tr>
+    <tr><td>refusal flipped</td><td><code>refusal_match</code></td><td>1</td><td>0</td></tr>
+    <tr><td>search retried after failure</td><td><code>retry_count</code></td><td>0</td><td>1</td></tr>
+    <tr><td><em>none</em> (control: keys reordered)</td><td><em>every metric</em></td><td colspan="2">identical</td></tr>
   </table>
 
   <h2>Honest by design</h2>
   <ul>
     <li><strong>Cost is estimated</strong> from a transparent char-based token
-    estimator (<code>tokens ≈ chars / k</code>, documented <code>k</code>) times a
-    fixture price table — a figure for relative comparison, never a bill.</li>
+    estimator (<code>tokens ≈ chars / 4</code>) times a synthetic price table — a
+    figure for relative comparison, never a bill. The evaluator reads the recorded
+    value rather than re-pricing, so a cost regression can never be an artifact of
+    two different price lists.</li>
     <li><strong>Structural, not string-equal.</strong> Task success checks
-    properties; exact match is opt-in and used sparingly.</li>
-    <li><strong>Placeholders are labeled.</strong> Explanation-quality and
-    semantic-similarity (<code>semantic_stub</code>) are deterministic stand-ins,
-    not learned judges.</li>
-    <li><strong>Infra errors are separated</strong> and never raise a regression flag.</li>
+    properties from a closed vocabulary; exact match is opt-in and no fixture uses
+    it. A property a single record cannot answer is either <em>pairwise</em>
+    (<code>final_output_stable</code>) or <em>advisory</em> — and either way it is
+    named in the metric's <code>detail</code>, never silently dropped.</li>
+    <li><strong>Placeholders are labeled and defanged.</strong> Explanation quality
+    always emits <code>0.0</code>; <code>semantic_similarity_stub</code> is lexical
+    token overlap, which rates a paraphrase low and a fluent contradiction high.
+    Both carry <code>detail["placeholder"]</code> and sit in
+    <code>NEVER_FLAG_METRICS</code>.</li>
+    <li><strong>Evidence support is recorded, not judged.</strong> Nothing here
+    reads a snippet and decides whether it entails a claim.</li>
+    <li><strong>Infra errors are separated</strong> and never raise a regression
+    flag. A record is attributed to infrastructure only if <em>every</em> error on
+    it is infra-origin; one app error makes the whole record the application's
+    fault.</li>
+    <li><strong>The JSON Schema validator is a documented subset.</strong> The core
+    is dependency-free, so <code>jsonschema</code> is not an option. Any keyword
+    outside <code>SUPPORTED_KEYWORDS</code> is surfaced in
+    <code>detail["unsupported_keywords"]</code> — ignoring one would let an invalid
+    document score as valid.</li>
+    <li><strong>The percentile method is pinned.</strong> p50/p95 use linear
+    interpolation between closest ranks ("type 7"). A threshold is only meaningful
+    if p95 means one thing.</li>
   </ul>
+
+  <h2>Trace completeness is a harness signal</h2>
+  <p>Every other metric assumes the trace says what happened;
+  <code>trace_completeness</code> asks whether it does. A run whose latency was
+  never recorded scores as the fastest in the suite. So a drop here means the
+  harness or the exporter is broken — not that the application regressed. The
+  asymmetry matters: a candidate whose JSON genuinely broke has
+  <code>parsed_output = null</code> and scores <code>trace_completeness = 1.0</code>
+  (a correct trace of a real failure), while the executor's
+  <code>--continue-on-error</code> record scores <code>0.777778</code>. All 52
+  committed fixture records score <code>1.0</code>.</p>
 
   <h2>Aggregation</h2>
   <p>Suite-level numbers are means / sums / percentiles over per-case
-  <code>MetricResult</code>s, computed with the standard-library
-  <code>statistics</code> module only. <code>pandas</code> is an optional
-  convenience for ad-hoc summaries, never required.</p>
+  <code>MetricResult</code>s, computed with the standard library only.
+  <code>pandas</code> is an optional convenience for ad-hoc summaries, never
+  required. Values are rounded to six decimals
+  (<code>cost_estimate_usd</code> to eight), so a score serializes to identical
+  bytes on any platform and a threshold comparison cannot hinge on the last bit of
+  a float.</p>
 
   <h2>Relevant files</h2>
   <ul class="files">
     <li>docs/METRICS.md — definitions</li>
     <li>src/llm_regression_observability/evaluators/ — one module per scorer</li>
-    <li>src/llm_regression_observability/observability/aggregation.py</li>
+    <li>src/llm_regression_observability/evaluators/base.py — METRIC_DIRECTION, NEVER_FLAG_METRICS</li>
+    <li>src/llm_regression_observability/evaluators/registry.py — evaluate_case / evaluate_run</li>
+    <li>tests/test_evaluators.py — 155 tests, exact expected scores</li>
+    <li>scripts/04_score_runs.py — score a run into results/processed/&lt;run_id&gt;/metrics.jsonl</li>
   </ul>
 
   <h2>Open questions / limitations</h2>
   <p>Deterministic evidence scoring has a known ceiling versus a learned
-  entailment model; the gap is a documented research direction (see
-  <a href="roadmap.html">Roadmap</a>).</p>
+  entailment model: <code>supported</code> is a recorded field of the trace, not a
+  judgment. <code>citation_presence</code> is <code>1.0</code> on every committed
+  fixture, because the trace model can only express an uncited claim as an empty
+  <code>source_id</code>; it exists for imported traces. One fixture property
+  (<code>expected_source_for_color</code>) is prose and lands in the advisory list
+  rather than being scored — a test pins that set so it cannot grow silently. See
+  <a href="limitations.html">Limitations</a> and
+  <a href="roadmap.html">Roadmap</a>.</p>
 </main>
 <footer class="site">llm-regression-observability — research/engineering artifact. Built milestone by milestone.</footer>
 </body>

@@ -130,7 +130,9 @@ supplies them, and derived by the executor otherwise; `tokens_estimated_cases` /
 
 ## MetricResult
 
-Emitted by evaluators; one per (case, metric).
+Emitted by evaluators (Milestone 5); one per (case, metric). Written to
+`results/processed/<run_id>/metrics.jsonl` by `scripts/04_score_runs.py`, sorted
+by metric name within each case.
 
 ```
 case_id: str
@@ -139,6 +141,21 @@ value: float                          # normalized where meaningful (0..1)
 passed: bool | None                   # against the metric's own criterion
 detail: dict                          # scorer-specific breakdown
 ```
+
+Conventions the scorers hold to:
+
+- `value` is rounded to six decimals (`cost_estimate_usd` to eight) so a result
+  serializes to identical bytes on any platform.
+- `passed` is `None` when the metric has **no criterion** — a raw `latency_ms`
+  has a delta, not a verdict — and also when a `task_success` check was vacuous
+  (no property was decidable from one record).
+- A metric that cannot be computed is **not emitted at all**. An absent metric
+  means *not applicable*; it never means zero.
+- `evaluators.METRIC_DIRECTION` maps each `metric` name to
+  `higher_better | lower_better | neutral`, and `evaluators.NEVER_FLAG_METRICS`
+  names those that may never raise a `RegressionFlag` (the two placeholders and
+  the infra counters). The comparison engine reads both rather than hard-coding a
+  sign per metric.
 
 ## ComparisonRecord
 

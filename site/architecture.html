@@ -31,7 +31,7 @@
   render into a report. Every stage writes inspectable JSON/JSONL artifacts so it
   can be re-run or examined on its own.</p>
 
-  <p><span class="status scaffold">status: contract defined; schemas (M1), fixtures (M2), adapters (M3) and the run executor (M4) implemented; evaluators onward across Milestones 5–8</span></p>
+  <p><span class="status scaffold">status: contract defined; schemas (M1), fixtures (M2), adapters (M3), the run executor (M4) and the evaluators (M5) implemented; comparison, reports and observability across Milestones 6–8</span></p>
 
   <h2>Pipeline</h2>
   <pre><code>evals/suites/*.yaml   ┌─────────────────────────────────────────┐
@@ -152,6 +152,32 @@ observability (M8)    │  headline, per-category, worst cases,     │
   byte-identical" is therefore a property of one function rather than a
   convention every caller must remember.</p>
 
+  <h2>Evaluators (Milestone 5)</h2>
+  <p>Each scorer is a pure function of <code>(EvalCase, RunRecord)</code> — no
+  clock, no RNG, no network, no learned model — emitting
+  <code>MetricResult</code>s. <code>evaluate_case()</code> runs all ten modules
+  and returns their results sorted by metric name, so a scored artifact is
+  byte-stable regardless of registration order.</p>
+
+  <p>A scorer is <strong>silent</strong> when the case gives it nothing to score,
+  so the metric set is a property of the case rather than of the registry: a
+  <code>structured</code> case emits three JSON metrics and no evidence metrics.
+  Downstream, an absent metric means <em>not applicable</em>, never <em>zero</em>
+  — the difference between "this candidate has no schema" and "this candidate
+  failed its schema."</p>
+
+  <p>Two tables carry the contract forward. <code>METRIC_DIRECTION</code> says
+  which way is worse for each metric, so the comparison engine flags a bad move
+  without hard-coding a sign. <code>NEVER_FLAG_METRICS</code> names what may not
+  raise a regression at all: the two declared placeholders, and the infra
+  counters — harness noise is surfaced, never blamed on the application.</p>
+
+  <p><code>trace_completeness</code> sits slightly apart from the rest: it scores
+  the <em>observation</em>, not the application. Every other metric assumes the
+  trace says what happened; a run whose latency was never recorded scores as the
+  fastest in the suite. A drop there means the harness is broken, which is a
+  different finding than a regression.</p>
+
   <h2>Deterministic by construction</h2>
   <p>No ambient <code>time</code>/<code>random</code>/<code>datetime.now()</code>
   in scored paths. Timestamps and seeds are inputs recorded in fixtures or run
@@ -162,31 +188,36 @@ observability (M8)    │  headline, per-category, worst cases,     │
   separate processes, and the Milestone 4 run artifacts are byte-identical across
   separate processes and output roots.</p>
 
-  <p>This is enforced, not merely asserted: a test parses each executor-path
-  module's AST and fails if it imports <code>time</code>, <code>datetime</code>,
-  <code>random</code>, <code>secrets</code>, <code>socket</code>,
-  <code>urllib</code>, <code>http</code>, or <code>requests</code>. The executor
-  also re-hashes <code>run.jsonl</code> after writing and raises if the bytes on
-  disk disagree with its in-memory digest.</p>
+  <p>This is enforced, not merely asserted: a test parses each executor-path and
+  evaluator module's AST and fails if it imports <code>time</code>,
+  <code>datetime</code>, <code>random</code>, <code>secrets</code>,
+  <code>socket</code>, <code>urllib</code>, <code>http</code>, or
+  <code>requests</code>. The executor also re-hashes <code>run.jsonl</code> after
+  writing and raises if the bytes on disk disagree with its in-memory digest, and
+  every metric value is rounded at the boundary so a score cannot differ in the
+  last bit of a float between platforms.</p>
 
   <h2>Relevant files</h2>
   <ul class="files">
-    <li>docs/PLAN.md · docs/TRACE_FORMAT.md · docs/OBSERVABILITY.md</li>
+    <li>docs/PLAN.md · docs/TRACE_FORMAT.md · docs/METRICS.md · docs/OBSERVABILITY.md</li>
     <li>src/llm_regression_observability/adapters/ — base.py, mock_model.py, recorded_model.py, scripted_model.py, api_stub.py</li>
     <li>src/llm_regression_observability/executor.py — RunConfig, RunMeta, CostModel, execute_suite / write_run / run_suite</li>
     <li>src/llm_regression_observability/traces/storage.py — byte-stable JSONL/JSON readers and writers</li>
-    <li>src/llm_regression_observability/ (per-stage modules above)</li>
-    <li>scripts/02_run_baseline.py · scripts/03_run_candidate.py — thin CLI wrappers</li>
+    <li>src/llm_regression_observability/evaluators/ — one module per scorer; registry.py, base.py (METRIC_DIRECTION, NEVER_FLAG_METRICS)</li>
+    <li>scripts/02_run_baseline.py · scripts/03_run_candidate.py · scripts/04_score_runs.py</li>
     <li>tests/test_adapters.py — 46 tests (determinism, exact fixture replay, per-injector behavior, inert API stub)</li>
     <li>tests/test_run_executor.py — 51 tests (suite loading, byte-stable storage, identity re-stamping, token/cost accounting, artifact self-check)</li>
+    <li>tests/test_evaluators.py — 155 tests (exact expected scores for all 26 fixture cases × both sides)</li>
   </ul>
 
   <h2>Test / result status</h2>
-  <p><code>python3 -m pytest -q</code> → 190 passed. The recorded adapter
+  <p><code>python3 -m pytest -q</code> → 345 passed. The recorded adapter
   reproduces all 52 committed fixture records exactly; every non-control case
   receives a real injected defect and every true control receives none. The
   executor turns the eight-case smoke suite into a baseline and a candidate run
-  whose only differences are the injected defects (see
+  whose only differences are the injected defects, and the evaluators score each
+  run into <code>results/processed/&lt;run_id&gt;/metrics.jsonl</code> — every
+  injected defect moving exactly the metric it targets (see
   <a href="results.html">Results</a>).</p>
 
   <h2>Open questions / limitations</h2>

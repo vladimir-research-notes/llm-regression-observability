@@ -36,8 +36,8 @@ API.
 
 ## End-to-end smoke
 
-Steps 1–3 are implemented (Milestones 2 and 4); steps 4–5 arrive with Milestones
-6 and 7.
+Steps 1–4 are implemented (Milestones 2, 4 and 5); steps 5–6 arrive with
+Milestones 6 and 7.
 
 ```bash
 # 1. validate fixtures
@@ -51,33 +51,40 @@ llmreg run-suite --suite evals/suites/smoke.yaml --adapter recorded \
 llmreg run-suite --suite evals/suites/smoke.yaml --adapter scripted-regression \
     --app-version candidate --out results/runs/
 
-# 4. compare                                        (Milestone 6, not yet built)
+# 4. score each run independently        (no deltas, no flags — that is step 5)
+python3 scripts/04_score_runs.py
+
+# 5. compare                                        (Milestone 6, not yet built)
 llmreg compare --baseline results/runs/<baseline_run_dir> \
     --candidate results/runs/<candidate_run_dir> --out results/comparisons/
 
-# 5. report                                         (Milestone 7, not yet built)
+# 6. report                                         (Milestone 7, not yet built)
 llmreg report --comparison results/comparisons/<comparison_id> \
     --out results/reports/regression_report.md
 ```
 
 Without an editable install (the default on the build host), use the numbered
-helper scripts, which prepend `src/` to `sys.path` and wrap the same CLI:
+helper scripts, which prepend `src/` to `sys.path`:
 
 ```bash
 python3 scripts/01_validate_fixtures.py evals/fixtures
 python3 scripts/02_run_baseline.py     # -> results/runs/smoke-baseline-recorded/
 python3 scripts/03_run_candidate.py    # -> results/runs/smoke-candidate-scripted-regression/
+python3 scripts/04_score_runs.py       # -> results/processed/<run_id>/metrics.jsonl
 ```
 
-Both accept extra `run-suite` flags verbatim, e.g. `--dry-run` (execute and
-summarize, write nothing) or `--out /tmp/runs`. `04_compare_runs.py` and
-`05_generate_report.py` land with their milestones.
+`02` and `03` accept extra `run-suite` flags verbatim, e.g. `--dry-run` (execute
+and summarize, write nothing) or `--out /tmp/runs`; `04` accepts `--run`,
+`--runs-root`, `--out`, and `--no-write`. `05_compare_runs.py` and
+`06_generate_report.py` land with their milestones.
 
-Each run writes two artifacts:
+Each run writes two artifacts, and scoring writes a third:
 
 - `results/runs/<run_id>/run.jsonl` — one `RunRecord` per case, in suite order.
 - `results/runs/<run_id>/run_meta.json` — identity, totals, the cost model
   applied, and the SHA-256 of `run.jsonl`.
+- `results/processed/<run_id>/metrics.jsonl` — one `MetricResult` per
+  (case, metric), sorted by metric name within each case.
 
 Generated `results/` contents are gitignored; regenerate them with the commands
 above.
@@ -95,6 +102,10 @@ To check it yourself:
 python3 scripts/02_run_baseline.py --out results/processed/_check
 diff -r results/runs/smoke-baseline-recorded \
         results/processed/_check/smoke-baseline-recorded
+
+python3 scripts/04_score_runs.py --out results/processed/_check
+diff -r results/processed/smoke-baseline-recorded \
+        results/processed/_check/smoke-baseline-recorded
 ```
 
 `run_meta.json` also carries `records_sha256`, which must equal
@@ -104,6 +115,11 @@ every write, and `tests/test_run_executor.py` asserts it independently.
 Latency is a **recorded input**, not a wall-clock measurement — timing the
 adapter would make artifacts differ run to run. See
 [`LIMITATIONS.md`](LIMITATIONS.md).
+
+Metric values are rounded to six decimals (`cost_estimate_usd` to eight), so a
+score cannot differ in the last bit of a float between platforms.
+`tests/test_evaluators.py` asserts every fixture score against an exact literal —
+if a metric definition drifts, a literal breaks.
 
 ## The docs website
 

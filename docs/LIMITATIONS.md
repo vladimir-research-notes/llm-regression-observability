@@ -53,16 +53,54 @@ live adapter (Milestone 11) would supply.
 
 ## Placeholder scorers
 
-Some scorers are explicit placeholders — notably explanation-quality in the
-refusal suite and any semantic-similarity scoring (`semantic_stub.py`), which is
-a deterministic stand-in and **not** a learned semantic judge. These are labeled
-as placeholders in code and docs.
+Some scorers are explicit placeholders — `explanation_quality_placeholder` in the
+refusal suite, and `semantic_similarity_stub`, a lexical token-overlap ratio and
+**not** a learned semantic judge (it rates a paraphrase low and a fluent
+contradiction high). Both are listed in `evaluators.NEVER_FLAG_METRICS`, so the
+comparison engine cannot raise a regression from either. They are labeled as
+placeholders in code, in `MetricResult.detail`, and in the docs.
+
+## Evidence support is recorded, not judged
+
+`evidence_coverage` and `unsupported_claim_count` read the `supported` field of
+`RetrievalTrace`. Nothing in this framework reads a snippet and decides whether
+it entails a claim — deterministic entailment is out of scope, and a learned
+entailment model is a dependency this project does not take. An imported trace
+that never sets `supported` scores every claim as unsupported, which is the
+conservative direction. `citation_correctness` checks only that a cited
+`source_id` exists, so a real document cited for the wrong claim is caught by
+`unsupported_claim_count`, not by `citation_correctness`.
+
+## Not every declared property is checked
+
+`task_success` scores a case against a **closed vocabulary** of structural
+property checks (`evaluators.exact.PROPERTY_CHECKS`). Anything else a fixture
+declares is *advisory*: reported in the metric's `detail`, not scored. Today one
+fixture property is advisory (`expected_source_for_color`, in
+`retrieval_evidence/re_wrong_source`) — it is prose, and the defect it describes
+is caught by the evidence metrics instead. One more is *pairwise*
+(`final_output_stable`), which no single record can answer. A case whose
+properties are all advisory or pairwise scores `task_success = 1.0` with
+`passed = None` and `detail["vacuous"] = true`: nothing failed, and nothing was
+tested. `tests/test_evaluators.py` pins the exact advisory set, so a new
+unchecked property cannot appear silently.
+
+## The JSON Schema validator is a subset
+
+The core is dependency-free, so `evaluators/json_schema.py` implements the
+keyword subset in `SUPPORTED_KEYWORDS` rather than depending on `jsonschema`.
+Keywords outside it (`$ref`, `allOf`, `format`, …) are **surfaced** in
+`detail["unsupported_keywords"]`, never silently ignored — ignoring one would let
+an invalid document score as valid. A test asserts every committed fixture schema
+uses only supported keywords.
 
 ## Attribution is heuristic
 
-The application-vs-infrastructure attribution is rule-based and conservative. It
-reduces false positives from harness noise but can misattribute an unusual
-failure. It reports its confidence rather than claiming certainty.
+The application-vs-infrastructure attribution is rule-based and conservative:
+`errors.attribution()` returns `infra` only when a record errored and *every*
+error was infra-origin, so one app error makes the whole record `app`. It reduces
+false positives from harness noise but can misattribute an unusual failure. It
+reports its confidence rather than claiming certainty.
 
 ## No production deployment
 
