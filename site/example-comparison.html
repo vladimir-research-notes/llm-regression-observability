@@ -31,7 +31,7 @@
   <code>python3 scripts/05_compare_runs.py</code> writes — nothing here is
   hand-authored or illustrative.</p>
 
-  <p><span class="status done">status: real output, Milestone 6 — copied from <code>results/comparisons/smoke-baseline-vs-candidate/</code></span></p>
+  <p><span class="status done">status: real output, Milestones 6–7 — copied from <code>results/comparisons/smoke-baseline-vs-candidate/</code> and <code>results/reports/regression_report.md</code></span></p>
 
   <h2>The case</h2>
   <p>From <code>evals/fixtures/structured_json/cases.json</code>. Expected behavior
@@ -136,18 +136,60 @@ cost total       : $0.018700 -> $0.018700 (estimate, not a bill)
 infra-attributed : 1 case(s) surfaced, excluded from flags
 clusters         : 6</code></pre>
 
+  <h2>The rendered report</h2>
+  <p><code>python3 scripts/06_generate_report.py</code> turns those artifacts — and
+  only those artifacts — into Markdown and one self-contained HTML file. Verbatim
+  from <code>docs/examples/regression_report.md</code>, which a test regenerates so
+  it cannot go stale:</p>
+  <pre><code># Regression report — smoke: baseline → candidate
+
+**Verdict: REGRESSED.** 6 regression flag(s) across 6 of 8 paired cases (4 critical, 2 warn).
+
+## Regressions by category
+
+| Category                        | Flags | Worst severity | Cases                  |
+| ------------------------------- | ----- | -------------- | ---------------------- |
+| `structured_output_regression`  | 1     | **critical**   | `sj_invalid_json`      |
+| `tool_call_regression`          | 1     | **critical**   | `tu_wrong_tool`        |
+| `evidence_grounding_regression` | 1     | **critical**   | `re_unsupported_claim` |
+| `refusal_behavior_shift`        | 1     | **critical**   | `rb_underrefuse`       |
+| `latency_regression`            | 1     | warn           | `lc_latency_spike`     |
+| `cost_regression`               | 0     | —              | —                      |
+| `error_rate_regression`         | 1     | warn           | `at_more_retries`      |
+| `final_answer_regression`       | 0     | —              | —                      |
+
+## What the engine declined to say
+
+- **1 infra-attributed case(s)** — every error on the candidate record was
+  harness-origin, so the application was not blamed: `at_infra_noise`.</code></pre>
+  <p>Three things about that last section. It is not an appendix — it is the reason
+  the report is trustworthy. <code>at_infra_noise</code> has a failed tool call and a
+  red trace, and appears <em>nowhere</em> in the worst-regressions table. An unpaired
+  case would be listed here too, and so would any flag withheld by infra attribution.
+  A clean headline over a comparison that could only look at half its cases is the
+  failure mode this project exists to avoid, and <code>summary.json</code> alone
+  cannot show it — which is what <code>comparison_meta.json</code> is for.</p>
+  <p>The report carries no generation timestamp: it is a pure function of the
+  comparison directory, so two renderings are byte-identical. Before the bytes are
+  written, the whole document is scanned for credential-like strings and
+  <strong>refused</strong> if one survived redaction (Milestone 9 supplies the mask;
+  Milestone 7 supplies the gate). See <a href="safety.html">Safety</a>.</p>
+
   <h2>Reproduce it</h2>
   <pre><code>python3 scripts/02_run_baseline.py
 python3 scripts/03_run_candidate.py
-python3 scripts/05_compare_runs.py            # add --fail-on critical for a CI gate</code></pre>
+python3 scripts/05_compare_runs.py            # add --fail-on critical for a CI gate
+python3 scripts/06_generate_report.py         # -> results/reports/regression_report.{md,html}</code></pre>
   <p>Two invocations produce byte-identical artifacts.</p>
 
   <h2>Relevant files</h2>
   <ul class="files">
     <li>evals/fixtures/structured_json/ — the fixture suite and its ground truth</li>
     <li>src/llm_regression_observability/comparison/ — the engine</li>
-    <li>scripts/05_compare_runs.py — the command above</li>
+    <li>src/llm_regression_observability/reports/ — the report generator</li>
+    <li>scripts/05_compare_runs.py, scripts/06_generate_report.py — the commands above</li>
     <li>results/comparisons/&lt;comparison_id&gt;/ — comparison.jsonl, summary.json, comparison_meta.json</li>
+    <li>docs/examples/regression_report.md — the committed sample report</li>
   </ul>
 
   <h2>Open questions</h2>
@@ -156,7 +198,10 @@ python3 scripts/05_compare_runs.py            # add --fail-on critical for a CI 
     category, so on four fixture cases its severity is harsher than the recorded
     candidate's. Category recall is 18/18 on both paths; see
     <a href="results.html">Results</a>.</li>
-    <li>The Markdown/HTML report that renders these records is Milestone 7.</li>
+    <li>The report renders the collapsed flag's <code>explanation</code> string, so
+    "wrong tool <em>and</em> missing tool <em>and</em> sequence drift" is one row,
+    not three. Splitting them would need a structured <code>detail</code> field on
+    <code>RegressionFlag</code>. See <a href="limitations.html">Limitations</a>.</li>
   </ul>
 </main>
 <footer class="site">llm-regression-observability — research/engineering artifact. All fixtures synthetic; costs are estimates, not bills.</footer>

@@ -17,20 +17,36 @@ or application.
   and benign; it tests whether a change shifts refusal behavior, not whether the
   model should comply with anything harmful.
 
-## Redaction (Milestone 9)
+## Redaction: the gate (Milestone 7) and the mask (Milestone 9)
 
-Before any trace or report is persisted, text passes through a redactor
-(`traces/redaction.py`) that masks:
+Two mechanisms, built in that order on purpose.
 
-- fake API keys (e.g. `sk-...`, provider-style prefixes);
-- generic secrets / high-entropy tokens;
-- bearer tokens and `Authorization` headers;
-- email addresses;
-- other obvious credential-like strings.
+**The gate exists now.** `reports/base.py::assert_redaction_clean` scans the fully
+rendered report immediately before the bytes hit the disk and is **fail-closed**: a
+credential-like string that reached the document means the report is *refused*, not
+written. The error names the pattern and the line and never echoes the value —
+an error message is a place secrets leak too. `llmreg report --dry-run` runs the
+same gate, so a dry run cannot pass where a real write would refuse.
 
-Redaction is covered by tests that assert known secret patterns are masked, and
-it runs **before** report generation. `redaction_status` on each `RunRecord`
-records whether a record was `clean`, `redacted`, or `flagged`.
+The patterns it recognizes today (`datasets/validation.py::SECRET_PATTERNS`, also
+used by `llmreg validate-fixtures`) are provider-style API keys (`sk-…`, `AKIA…`,
+`gh[pousr]_…`, `AIza…`, `xox[baprs]-…`), bearer tokens, and private-key headers.
+
+**The mask arrives with Milestone 9.** `traces/redaction.py` will supply a redactor
+that *masks* rather than refuses — covering the patterns above plus generic
+high-entropy tokens, `Authorization` headers, and email addresses — and will set
+`redaction_status` (`clean` | `redacted` | `flagged`) on each `RunRecord` before
+persistence. It plugs into the `Redactor` seam that `reports.build_report()`
+already takes; the gate stays exactly where it is, as the last assertion.
+
+Milestone 7's default redactor masks nothing, which is precisely why the gate is
+fail-closed rather than advisory.
+
+Independently of both: a comparison artifact carries no model-generated prose to
+begin with. Flag explanations, per-case summaries and cluster labels are authored
+by the rules from metric names, numbers, tool names and property names — never by
+copying a model's output. The report renders only those, so the gate is a backstop,
+not the only line of defence.
 
 ## What is never committed
 

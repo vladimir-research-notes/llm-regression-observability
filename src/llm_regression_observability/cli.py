@@ -10,9 +10,8 @@ exercised end to end:
   so the CLI itself is testable and self-contained.
 
 Milestone 2 adds ``validate-fixtures``; Milestone 4 adds ``run-suite``; Milestone
-6 adds ``compare``. A later milestone adds ``report`` (see ``docs/PLAN.md``). This
-module stays dependency-free and calls no network, clock, or randomness in any
-scored path.
+6 adds ``compare``; Milestone 7 adds ``report``. This module stays dependency-free
+and calls no network, clock, or randomness in any scored path.
 """
 
 from __future__ import annotations
@@ -48,6 +47,12 @@ ADAPTER_CHOICES: tuple[str, ...] = (
 )
 DEFAULT_COST_INPUT_PER_1K = 0.003
 DEFAULT_COST_OUTPUT_PER_1K = 0.015
+
+# Mirrored from ``reports.FORMATS`` for the same reason. ``both`` expands to the
+# two real formats. ``tests/test_reports.py`` asserts they stay in sync.
+REPORT_FORMAT_CHOICES: tuple[str, ...] = ("markdown", "html", "both")
+DEFAULT_REPORT_OUT = "results/reports/regression_report.md"
+DEFAULT_REPORT_TOP = 10
 
 
 def _import_ok(name: str) -> bool:
@@ -295,6 +300,51 @@ def _cmd_compare(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_report(args: argparse.Namespace) -> int:
+    # Imported lazily so the cheap subcommands do not pay for the report stack.
+    from .reports import FORMATS, ReportError, generate_report
+    from .schemas import SchemaError
+
+    formats = FORMATS if args.format == "both" else (args.format,)
+    out = None if args.dry_run else Path(args.out)
+    try:
+        result = generate_report(
+            args.comparison, out, formats=formats, top=args.top or None
+        )
+    except (ReportError, SchemaError, OSError) as exc:
+        print(f"error            : {exc}")
+        print("result           : FAIL")
+        return 1
+
+    report = result.report
+    print(f"comparison id    : {report.comparison_id}")
+    print(f"suite            : {report.suite_id} ({report.suite_path})")
+    print(
+        f"baseline         : {report.baseline_run_id} "
+        f"({report.baseline_version}, {report.baseline_adapter})"
+    )
+    print(
+        f"candidate        : {report.candidate_run_id} "
+        f"({report.candidate_version}, {report.candidate_adapter})"
+    )
+    print(f"verdict          : {report.verdict} — {report.headline}")
+    print(f"cases paired     : {report.case_count}")
+    print(
+        f"flags            : {report.flag_count} "
+        f"({report.critical_count} critical, {report.warn_count} warn)"
+    )
+    print(f"clusters         : {len(report.clusters)}")
+    # The gate already ran inside ``generate_report``; reaching here proves it.
+    print("redaction        : clean (rendered report holds no credential-like string)")
+    if not result.written:
+        print("artifacts        : none written (--dry-run)")
+    else:
+        for fmt in formats:
+            print(f"{f'report ({fmt})':<17}: {result.paths[fmt]}")
+    print("result           : PASS")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the ``llmreg`` argument parser."""
     parser = argparse.ArgumentParser(prog="llmreg", description=__summary__)
@@ -429,6 +479,46 @@ def build_parser() -> argparse.ArgumentParser:
         help="exit 1 when a flag reaches this severity (default: none — report only)",
     )
     p_compare.set_defaults(func=_cmd_compare)
+
+    p_report = sub.add_parser(
+        "report",
+        help="render a comparison as a Markdown / self-contained HTML report",
+    )
+    p_report.add_argument(
+        "--comparison",
+        required=True,
+        help="comparison directory written by `llmreg compare`, "
+        "e.g. results/comparisons/smoke-baseline-vs-candidate",
+    )
+    p_report.add_argument(
+        "--out",
+        default=DEFAULT_REPORT_OUT,
+        help=(
+            f"output file (or directory); default: {DEFAULT_REPORT_OUT}. "
+            "The suffix is set from --format"
+        ),
+    )
+    p_report.add_argument(
+        "--format",
+        default="markdown",
+        choices=REPORT_FORMAT_CHOICES,
+        help="output format (default: markdown; 'both' writes .md and .html)",
+    )
+    p_report.add_argument(
+        "--top",
+        type=int,
+        default=DEFAULT_REPORT_TOP,
+        help=(
+            f"rows in the worst-regressions table (default: {DEFAULT_REPORT_TOP}; "
+            "0 shows every flag)"
+        ),
+    )
+    p_report.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="render and redaction-check without writing any artifact",
+    )
+    p_report.set_defaults(func=_cmd_report)
 
     return parser
 

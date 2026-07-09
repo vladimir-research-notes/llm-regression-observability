@@ -31,7 +31,7 @@
   render into a report. Every stage writes inspectable JSON/JSONL artifacts so it
   can be re-run or examined on its own.</p>
 
-  <p><span class="status done">status: the first two stages are built end to end — schemas (M1), fixtures (M2), adapters (M3), run executor (M4), evaluators (M5) and the comparison engine (M6). Reports and observability follow in Milestones 7–8</span></p>
+  <p><span class="status done">status: all three stages are built end to end — schemas (M1), fixtures (M2), adapters (M3), run executor (M4), evaluators (M5), the comparison engine (M6) and the report generator (M7). Observability spans follow in Milestone 8</span></p>
 
   <h2>Pipeline</h2>
   <pre><code>evals/suites/*.yaml   ┌─────────────────────────────────────────┐
@@ -48,10 +48,25 @@ refusal, error        │  aggregate by suite + category           │      comp
                       └────────────────┬────────────────────────┘
                                        │
 reports (M7)          ┌────────────────▼────────────────────────┐
-redaction (M9)        │  REPORT GENERATOR                        │──▶ results/reports/*.md, *.html
+redaction gate (M7)   │  REPORT GENERATOR (M7)                   │──▶ results/reports/*.md, *.html
+redaction mask (M9)   │  artifacts → ReportModel → md / html     │
 observability (M8)    │  headline, per-category, worst cases,     │
-                      │  latency/cost tables, examples           │
+                      │  examples, latency/cost, what was withheld│
                       └─────────────────────────────────────────┘</code></pre>
+
+  <h3>Why the report reads only the artifacts</h3>
+  <p>The report generator opens <code>comparison.jsonl</code>,
+  <code>summary.json</code> and <code>comparison_meta.json</code> — not the runs, not
+  the fixtures, not the engine. So a report is reproducible from a directory a
+  colleague hands you, and it cannot quietly enrich itself from a source the reader
+  does not have. The cost is visible in the output: the structured-output table shows
+  <code>json_validity_delta = -1</code> ("was valid, is not") rather than
+  <code>1.0 → 0.0</code>, because <code>ComparisonRecord</code> records the delta and
+  the flag, not the two absolute values.</p>
+  <p>Selection — which regressions are "worst", which case represents the tool-call
+  dimension, whether a cost row may be shown at all — happens once, in a shared
+  <code>ReportModel</code>. The Markdown and HTML renderers lay out tables; they do
+  not choose rows. Two formats of one report cannot disagree.</p>
 
   <h3>Why the comparison writes three files</h3>
   <p><code>summary.json</code> answers <em>what regressed</em>.
@@ -82,7 +97,7 @@ observability (M8)    │  headline, per-category, worst cases,     │
   comparison/  baseline.py candidate.py diff.py regression.py clustering.py
   observability/ metrics.py spans.py aggregation.py
   adapters/    mock_model.py recorded_model.py scripted_model.py api_stub.py
-  reports/     markdown.py html.py</code></pre>
+  reports/     base.py model.py markdown.py html.py</code></pre>
 
   <h2>Adapters (Milestone 3)</h2>
   <p>An <strong>adapter</strong> is the only thing standing where a real model

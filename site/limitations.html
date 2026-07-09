@@ -114,6 +114,29 @@
   collapsing one flag per (case, category); it is not a count of everything that
   moved.</p>
 
+  <h2>The report can only say what the comparison artifacts say</h2>
+  <p><code>llmreg report</code> reads <code>comparison.jsonl</code>,
+  <code>summary.json</code> and <code>comparison_meta.json</code>, and nothing else.
+  That makes a report reproducible from a directory alone, at three costs.
+  <strong>Deltas, not absolutes</strong> — the structured-output table shows
+  <code>-1</code> ("was valid, is not") rather than <code>1.0 → 0.0</code>, because no
+  artifact records the two values. <strong>A <code>0</code> row is ambiguous</strong> —
+  in the per-category table it means no flag fired, and cannot distinguish a dimension
+  evaluated and clean from one no case declared; the report prints all eight categories
+  anyway, and says this in its own limitations note. <strong>A collapsed flag is one
+  row</strong> — Milestone 6 folds a category's triggers into a single flag whose
+  <code>explanation</code> names the runners-up after <code>also:</code>, and the
+  report renders that string; splitting "wrong tool <em>and</em> missing tool
+  <em>and</em> sequence drift" into three rows would need a structured
+  <code>detail</code> field on <code>RegressionFlag</code>.</p>
+
+  <h2>Redaction is currently a refusal, not a mask</h2>
+  <p>The report generator scans its fully rendered output for credential-like strings
+  and <strong>refuses to write</strong> if it finds one. It does not yet mask: the
+  masking redactor is Milestone 9, and until it lands the default redactor in the seam
+  is the identity function. A comparison artifact carrying a secret therefore produces
+  no report at all rather than a redacted one. See <a href="safety.html">Safety</a>.</p>
+
   <h2>Detection recall is measured on defects built to be detected</h2>
   <p>The 18/18 recall on <a href="results.html">Results</a> is measured on synthetic
   fixtures whose defects were written alongside the rules that catch them. It shows

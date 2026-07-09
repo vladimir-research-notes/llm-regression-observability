@@ -36,8 +36,7 @@ API.
 
 ## End-to-end smoke
 
-Steps 1–5 are implemented (Milestones 2, 4, 5 and 6); step 6 arrives with
-Milestone 7.
+All six steps are implemented (Milestones 2, 4, 5, 6 and 7).
 
 ```bash
 # 1. validate fixtures
@@ -59,13 +58,18 @@ llmreg compare --baseline results/runs/smoke-baseline-recorded \
     --candidate results/runs/smoke-candidate-scripted-regression \
     --out results/comparisons/
 
-# 6. report                                         (Milestone 7, not yet built)
-llmreg report --comparison results/comparisons/<comparison_id> \
-    --out results/reports/regression_report.md
+# 6. report: render the comparison as Markdown (and/or self-contained HTML)
+llmreg report --comparison results/comparisons/smoke-baseline-vs-candidate \
+    --out results/reports/regression_report.md --format both
 ```
 
 Step 5 detects six regressions and no false positives; add `--fail-on critical`
 to turn it into a CI gate (exit 1), or `--dry-run` to compare without writing.
+
+Step 6 renders those records. `--top N` bounds the worst-regressions table (`0`
+shows every flag); `--dry-run` renders and runs the redaction gate without writing.
+The report is refused rather than written if any credential-like string survives
+redaction.
 
 Without an editable install (the default on the build host), use the numbered
 helper scripts, which prepend `src/` to `sys.path`:
@@ -76,17 +80,19 @@ python3 scripts/02_run_baseline.py     # -> results/runs/smoke-baseline-recorded
 python3 scripts/03_run_candidate.py    # -> results/runs/smoke-candidate-scripted-regression/
 python3 scripts/04_score_runs.py       # -> results/processed/<run_id>/metrics.jsonl
 python3 scripts/05_compare_runs.py     # -> results/comparisons/smoke-baseline-vs-candidate/
+python3 scripts/06_generate_report.py  # -> results/reports/regression_report.{md,html}
 ```
 
-`02`, `03` and `05` accept extra flags verbatim, e.g. `--dry-run` (execute and
-summarize, write nothing) or `--out /tmp/runs`; `04` accepts `--run`,
-`--runs-root`, `--out`, and `--no-write`. `06_generate_report.py` lands with its
-milestone. (`05_compare_runs.py` takes the `04` slot named in
-`docs/milestones/06-comparison.md`; that number was already used by the
-Milestone 5 scorer.)
+`02`, `03`, `05` and `06` accept extra flags verbatim, e.g. `--dry-run` (execute
+and summarize, write nothing) or `--out /tmp/runs`; `04` accepts `--run`,
+`--runs-root`, `--out`, and `--no-write`. Each numbered script sits one slot later
+than its milestone doc names it, from `05` onward: `04_score_runs.py` (Milestone 5)
+took the `04` slot that `docs/milestones/06-comparison.md` wanted for the compare
+script, and the shift carried into `06_generate_report.py`
+(`docs/milestones/07-reports.md` names it `05_generate_report.py`).
 
-Each run writes two artifacts, scoring writes a third, and the comparison writes
-three more:
+Each run writes two artifacts, scoring writes a third, the comparison writes three
+more, and the report writes one per format:
 
 - `results/runs/<run_id>/run.jsonl` — one `RunRecord` per case, in suite order.
 - `results/runs/<run_id>/run_meta.json` — identity, totals, the cost model
@@ -100,9 +106,14 @@ three more:
 - `results/comparisons/<comparison_id>/comparison_meta.json` — the
   `ComparisonMeta`: unpaired cases, infra-attributed cases, withheld flags, the
   thresholds applied, and the SHA-256 of `comparison.jsonl`.
+- `results/reports/regression_report.md` / `.html` — the rendered report. The HTML
+  is one self-contained file: no stylesheet, script, image, or web font is
+  requested over the network.
 
 Generated `results/` contents are gitignored; regenerate them with the commands
-above.
+above. A committed copy of the Markdown report lives at
+[`examples/regression_report.md`](examples/regression_report.md); a test
+regenerates it and compares byte for byte, so it cannot drift from the code.
 
 ## Determinism guarantee
 
@@ -125,7 +136,15 @@ diff -r results/processed/smoke-baseline-recorded \
 python3 scripts/05_compare_runs.py --out results/processed/_check
 diff -r results/comparisons/smoke-baseline-vs-candidate \
         results/processed/_check/smoke-baseline-vs-candidate
+
+python3 scripts/06_generate_report.py --out results/processed/_check/report.md
+diff results/reports/regression_report.md results/processed/_check/report.md
+diff results/reports/regression_report.html results/processed/_check/report.html
 ```
+
+The report carries **no generation timestamp** — a pure function of the comparison
+artifacts. Provenance comes from `records_sha256` and the `llmreg` version stamped
+into `comparison_meta.json`, both printed in the report's header table.
 
 `run_meta.json` carries `records_sha256`, which must equal
 `sha256sum results/runs/<run_id>/run.jsonl`; `comparison_meta.json` carries the

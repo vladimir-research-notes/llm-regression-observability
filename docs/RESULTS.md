@@ -1,13 +1,13 @@
 # Results
 
-> **Status: the detector works, on synthetic ground truth.** Milestones 4–6 are
-> implemented, so the run artifacts, the per-case scores, and the **regression
-> flags** below are real and reproducible. On the six committed fixture suites the
-> comparison engine detects **18 of 18 injected defects** with the category and
-> severity their ground truth annotates, and raises **0 false positives** on the 8
-> negative controls. Everything on this page is measured on synthetic fixtures and
-> does not generalize to production traffic — see
-> [`LIMITATIONS.md`](LIMITATIONS.md).
+> **Status: the detector works, on synthetic ground truth, and reports what it
+> found.** Milestones 4–7 are implemented, so the run artifacts, the per-case
+> scores, the **regression flags**, and the **rendered report** below are real and
+> reproducible. On the six committed fixture suites the comparison engine detects
+> **18 of 18 injected defects** with the category and severity their ground truth
+> annotates, and raises **0 false positives** on the 8 negative controls.
+> Everything on this page is measured on synthetic fixtures and does not
+> generalize to production traffic — see [`LIMITATIONS.md`](LIMITATIONS.md).
 
 ## Headline: detection on ground truth (Milestone 6)
 
@@ -213,17 +213,68 @@ its support) rather than the `critical` reserved for a claim the model invented.
 
 **Reproducibility.** Two runs on the same fixtures, in separate processes and
 into different output roots, produce byte-identical `run.jsonl`, `run_meta.json`,
-`metrics.jsonl`, `comparison.jsonl`, `summary.json`, and `comparison_meta.json`
-(verified by the digest check each writer performs, and by
+`metrics.jsonl`, `comparison.jsonl`, `summary.json`, `comparison_meta.json`, and
+`regression_report.md` / `.html` (verified by the digest check each writer
+performs, and by
 `tests/test_run_executor.py::test_two_runs_on_the_same_inputs_are_byte_identical`,
-`tests/test_evaluators.py::test_scoring_is_byte_stable_across_calls`, and
-`tests/test_comparison.py::test_two_comparisons_of_the_same_runs_are_byte_identical`).
+`tests/test_evaluators.py::test_scoring_is_byte_stable_across_calls`,
+`tests/test_comparison.py::test_two_comparisons_of_the_same_runs_are_byte_identical`,
+and `tests/test_reports.py::test_writing_twice_produces_byte_identical_files`).
+
+## The report (Milestone 7)
+
+`python3 scripts/06_generate_report.py` renders the comparison above into
+`results/reports/regression_report.md` and `.html`. A copy of the Markdown is
+committed at [`examples/regression_report.md`](examples/regression_report.md), and
+`tests/test_reports.py::test_the_committed_example_report_is_not_stale` regenerates
+it from the fixtures and compares byte for byte — a sample report in the docs that
+drifts from what the code emits is a claim nobody re-checks.
+
+The document opens with the verdict and closes with what it could not see:
+
+| Section | What it answers |
+| --- | --- |
+| Verdict + provenance table | Did anything regress? Against which two runs, under which digest? |
+| Regressions by category | What kind, how many flags, how many cases, worst severity — all eight categories, silent ones included |
+| Worst regressions | Severity-ordered flags with metric, observed, threshold, and the rule's explanation |
+| Representative examples | One worked case each for structured output, tool-call diff, evidence grounding |
+| Structured-output validity | `json_validity_delta` per case that moved or flagged |
+| Latency / Cost | p50/p95 and totals, **plus every case that moved without flagging** |
+| Failure clusters | Correlated failures as one finding each |
+| What the engine declined to say | Unpaired cases, infra-attributed cases, withheld flags, comparability notes, thresholds applied |
+| Limitations | What the report cannot see |
+
+On the smoke comparison that is: verdict `REGRESSED`, 6 flags over 6 of 8 paired
+cases (4 critical, 2 warn), 6 clusters, `lc_latency_spike` in the latency table at
+`+250.0 ms`, `at_infra_noise` in the disclosures as *surfaced, excluded from
+flags* — and nowhere in the worst-regressions table.
+
+Three properties, each with a test:
+
+- **Deterministic.** No clock, no RNG, no generation timestamp. Two renders of one
+  comparison are byte-identical, and an AST scan fails if any module under
+  `reports/` imports `time`, `datetime`, `random`, `secrets`, `socket`, `urllib`,
+  `http`, or `requests`.
+- **Redaction-gated, fail-closed.** The fully rendered document is scanned for
+  credential-like strings immediately before it is written; one that survived the
+  redactor is refused, not written, and the error names the pattern and line
+  without echoing the value. The masking redactor arrives in Milestone 9 and plugs
+  into the same seam. Tested by splicing a fake key into a copy of the smoke
+  comparison and asserting the write — and the `--dry-run` — both refuse.
+- **Sourced only from the artifacts.** The report reads `comparison.jsonl`,
+  `summary.json` and `comparison_meta.json`, and nothing else. Every string in it
+  is a case id, a metric name, a threshold, or a rule-authored explanation. No
+  model-generated output text is copied into it.
+
+The HTML rendering is one self-contained file: no `<link>`, no `<script>`, no
+`<img>`, no `url()`, no external host. A report attached to a pull request should
+not tell a third party that someone is reading it.
 
 ## Test status
 
-`python3 -m pytest -q` → **441 passed**, CPU-only and offline (6 scaffold +
+`python3 -m pytest -q` → **507 passed**, CPU-only and offline (6 scaffold +
 8 smoke + 54 schema + 25 fixtures + 46 adapters + 51 executor + 155 evaluators +
-96 comparison).
+96 comparison + 66 reports).
 
 ## What is not claimed
 
@@ -238,8 +289,8 @@ into different output roots, produce byte-identical `run.jsonl`, `run_meta.json`
 
 ## What will be reported here next
 
-Milestone 7 renders these comparison records into a Markdown/HTML report:
-headline, per-category breakdown, worst regressions, and representative examples.
+Milestone 8 adds the observability layer: spans per request / model call / tool
+call / retrieval / evaluator, and aggregate metrics over them.
 
 ## Reproduction
 

@@ -123,6 +123,36 @@ counts findings after collapsing one flag per (case, category); it is not a coun
 of everything that moved. The per-case `ComparisonRecord` deltas and the flag
 explanations carry the detail.
 
+## The report can only say what the comparison artifacts say
+
+`llmreg report` reads `comparison.jsonl`, `summary.json` and
+`comparison_meta.json`, and nothing else — not the runs, not the fixtures, not the
+engine. That makes a report reproducible from a directory alone, at two costs.
+
+**Deltas, not absolutes.** `ComparisonRecord` records `json_validity_delta`, not
+the baseline and candidate validity values, so the structured-output table shows
+`-1` ("was valid, is not") rather than `1.0 → 0.0`. The same holds for the tool and
+evidence dimensions.
+
+**A `0` row is ambiguous.** In the per-category table, `0 flags` means no flag
+fired. It does not distinguish a dimension that was evaluated and came back clean
+from one that no case in the suite declared. The report prints all eight categories
+anyway — a missing row would read as an oversight — and says this in its own
+limitations note.
+
+**A collapsed flag is one row.** Milestone 6 collapses a category's triggers into a
+single flag whose `explanation` names the runners-up after `also:`. The report
+renders that string; it cannot split "wrong tool *and* missing tool *and* sequence
+drift" into three rows, because `RegressionFlag` has no structured `detail` field.
+
+## Redaction is currently a refusal, not a mask
+
+The report generator scans its fully rendered output for credential-like strings
+and **refuses to write** if it finds one (`reports/base.py`). It does not yet mask:
+the masking redactor is Milestone 9, and until it lands the default redactor in the
+seam is the identity function. A comparison artifact carrying a secret therefore
+produces no report at all rather than a redacted one. See [`SAFETY.md`](SAFETY.md).
+
 ## Detection recall is measured on defects built to be detected
 
 The 18/18 recall in [`RESULTS.md`](RESULTS.md) is measured on synthetic fixtures

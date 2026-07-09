@@ -26,7 +26,7 @@
 </header>
 <main>
   <h1>Results</h1>
-  <p><span class="status done">status: Milestone 6 complete — 18/18 injected defects detected with their annotated category and severity; 0 false positives on the 8 negative controls; 441 tests passing</span></p>
+  <p><span class="status done">status: Milestone 7 complete — 18/18 injected defects detected with their annotated category and severity; 0 false positives on the 8 negative controls; the comparison now renders as a deterministic, redaction-gated report; 507 tests passing</span></p>
 
   <div class="callout">Everything below is measured on <strong>synthetic fixtures
   with injected defects</strong>. 18/18 recall on a suite built to be detected is
@@ -239,10 +239,50 @@ result           : PASS</code></pre>
   the boundary (six decimals; cost eight), so a score cannot differ in the last bit
   of a float between platforms.</p>
 
+  <h2>The report (Milestone 7)</h2>
+  <p><code>python3 scripts/06_generate_report.py</code> renders the comparison above
+  into <code>results/reports/regression_report.md</code> and <code>.html</code>. A
+  copy of the Markdown is committed at <code>docs/examples/regression_report.md</code>,
+  and a test regenerates it from the fixtures and compares byte for byte — a sample
+  report in the docs that drifts from what the code emits is a claim nobody
+  re-checks.</p>
+  <p>On the smoke comparison: verdict <strong>REGRESSED</strong>, 6 flags over 6 of 8
+  paired cases (4 critical, 2 warn), 6 clusters, <code>lc_latency_spike</code> in the
+  latency table at <code>+250.0 ms</code>, and <code>at_infra_noise</code> in the
+  disclosures as <em>surfaced, excluded from flags</em> — nowhere in the
+  worst-regressions table.</p>
+  <table>
+    <tr><th>Section</th><th>What it answers</th></tr>
+    <tr><td>Verdict + provenance</td><td>Did anything regress? Against which two runs, under which digest?</td></tr>
+    <tr><td>Regressions by category</td><td>What kind, how many flags, how many cases, worst severity — all eight categories, silent ones included</td></tr>
+    <tr><td>Worst regressions</td><td>Severity-ordered flags with metric, observed, threshold, and the rule's explanation</td></tr>
+    <tr><td>Representative examples</td><td>One worked case each for structured output, tool-call diff, evidence grounding</td></tr>
+    <tr><td>Structured-output validity</td><td><code>json_validity_delta</code> per case that moved or flagged</td></tr>
+    <tr><td>Latency / Cost</td><td>p50/p95 and totals, <strong>plus every case that moved without flagging</strong></td></tr>
+    <tr><td>Failure clusters</td><td>Correlated failures as one finding each</td></tr>
+    <tr><td>What the engine declined to say</td><td>Unpaired cases, infra-attributed cases, withheld flags, comparability notes, thresholds applied</td></tr>
+    <tr><td>Limitations</td><td>What the report cannot see</td></tr>
+  </table>
+  <p>Three properties, each with a test. <strong>Deterministic</strong> — no clock, no
+  RNG, no generation timestamp; two renders are byte-identical, and an AST scan fails
+  if any module under <code>reports/</code> imports <code>time</code>,
+  <code>datetime</code>, <code>random</code>, <code>secrets</code>,
+  <code>socket</code>, <code>urllib</code>, <code>http</code>, or
+  <code>requests</code>. <strong>Redaction-gated, fail-closed</strong> — the rendered
+  document is scanned for credential-like strings immediately before it is written;
+  one that survived the redactor is refused, and the error names the pattern and line
+  without echoing the value. <strong>Sourced only from the artifacts</strong> — every
+  string is a case id, a metric name, a threshold, or a rule-authored explanation; no
+  model-generated output text is copied into it.</p>
+  <p>The HTML rendering is one self-contained file: no <code>&lt;link&gt;</code>, no
+  <code>&lt;script&gt;</code>, no <code>&lt;img&gt;</code>, no <code>url()</code>, no
+  external host. A report attached to a pull request should not tell a third party
+  that someone is reading it.</p>
+
   <h2>Test status</h2>
-  <p><code>python3 -m pytest -q</code> → <strong>441 passed</strong>, CPU-only and
+  <p><code>python3 -m pytest -q</code> → <strong>507 passed</strong>, CPU-only and
   offline (6 scaffold + 8 smoke + 54 schema + 25 fixtures + 46 adapters +
-  51 executor + 155 evaluators + 96 comparison).</p>
+  51 executor + 155 evaluators + 96 comparison + 66 reports).</p>
 
   <h2>What is not claimed</h2>
   <ul>
@@ -256,11 +296,11 @@ result           : PASS</code></pre>
   </ul>
 
   <h2>What will be reported next</h2>
-  <p>Milestone 7 renders these comparison records into a Markdown/HTML report:
-  headline, per-category breakdown, worst regressions, representative examples.</p>
+  <p>Milestone 8 adds the observability layer: spans per request / model call / tool
+  call / retrieval / evaluator, and aggregate metrics over them.</p>
 
   <h2>Reproduction</h2>
-  <p>Steps 1–4 run today; step 5 arrives with Milestone 7.</p>
+  <p>Every step runs today.</p>
   <pre><code>llmreg run-suite --suite evals/suites/smoke.yaml --adapter recorded \
     --app-version baseline  --out results/runs/
 llmreg run-suite --suite evals/suites/smoke.yaml --adapter scripted-regression \
@@ -271,14 +311,14 @@ llmreg compare --baseline results/runs/smoke-baseline-recorded \
     --candidate results/runs/smoke-candidate-scripted-regression \
     --out results/comparisons/                        # add --fail-on critical for CI
 
-llmreg report --comparison results/comparisons/&lt;id&gt; \
-    --out results/reports/regression_report.md        # Milestone 7, not yet built</code></pre>
+llmreg report --comparison results/comparisons/smoke-baseline-vs-candidate \
+    --out results/reports/regression_report.md --format both</code></pre>
   <p>Without an editable install, use the wrappers
   <code>python3 scripts/02_run_baseline.py</code>,
-  <code>03_run_candidate.py</code>, <code>04_score_runs.py</code> and
-  <code>05_compare_runs.py</code>; all accept <code>--dry-run</code> to execute and
-  summarize without writing. Generated <code>results/</code> contents are gitignored
-  and regenerated on demand.</p>
+  <code>03_run_candidate.py</code>, <code>04_score_runs.py</code>,
+  <code>05_compare_runs.py</code> and <code>06_generate_report.py</code>; all accept
+  <code>--dry-run</code> to execute and summarize without writing. Generated
+  <code>results/</code> contents are gitignored and regenerated on demand.</p>
   <p>All numbers are produced offline, CPU-only, and are byte-reproducible on the
   same fixtures. See <code>docs/RESULTS.md</code> and
   <code>docs/REPRODUCIBILITY.md</code>.</p>
