@@ -1,18 +1,22 @@
 # Results
 
 > **Status: the detector works, on synthetic ground truth, and reports what it
-> found.** Milestones 4–11 are implemented, so the run artifacts, the per-case
-> scores, the **regression flags**, the **rendered report**, the **spans and
-> suite metrics**, the **redaction** in front of all of them, the **import
-> contracts** traces arrive through, and the **cost guard** in front of the one
-> path that could spend money below are real and
-> reproducible. On the six committed fixture suites the comparison engine detects
-> **18 of 18 injected defects** with the category and severity their ground truth
-> annotates, and raises **0 false positives** on the 8 negative controls.
-> Everything on this page is measured on synthetic fixtures and does not
-> generalize to production traffic — see [`LIMITATIONS.md`](LIMITATIONS.md).
+> found.** Milestones 0–12 are implemented, so the run artifacts, the per-case
+> scores, the **regression flags**, the **rendered report**, the **spans and suite
+> metrics**, the **redaction** in front of all of them, the **import contracts**
+> traces arrive through, and the **cost guard** in front of the one path that
+> could spend money are all real and reproducible. On the six committed fixture
+> suites the comparison engine detects **18 of 18 injected defects** with the
+> category and severity their ground truth annotates, and raises **0 false
+> positives** on the 8 negative controls. Everything on this page is measured on
+> synthetic fixtures and does not generalize to production traffic — see
+> [`LIMITATIONS.md`](LIMITATIONS.md).
 
-## Headline: detection on ground truth (Milestone 6)
+Every number below is produced by a committed, offline, byte-reproducible run.
+The commands are in [`REPRODUCIBILITY.md`](REPRODUCIBILITY.md) and repeated at the
+end of this page.
+
+## Headline: detection on ground truth
 
 Each fixture suite ships `expected.json` — an oracle stating, per case, which
 regression (if any) a correct detector must raise, at which severity, attributed
@@ -66,46 +70,184 @@ attributed to the category that owns the property that failed. Without that rule
 each of the 18 defects would also report a `final_answer_regression` — see
 [`REGRESSION_DETECTION.md`](REGRESSION_DETECTION.md), "One defect, one signal".
 
-### The three rows that carry the argument
+## Every injected defect, dimension by dimension
 
-- **`lc_latency_spike` scores `task_success = 1` on both sides.** The answer is
-  correct and byte-identical; only the process got slower (150 → 420 ms). A
-  string-diff test sees nothing. The engine raises `latency_regression`.
-- **`at_infra_noise` has a failed tool call and a red trace, and raises nothing.**
-  Its error is `origin=infra`, so the application is not blamed. The case is named
-  in `comparison_meta.json` under `infra_attributed_case_ids`, not dropped —
-  research question 9.
-- **`sj_control_reorder` changes `final_output` and regresses nothing.** The JSON
-  keys were reordered; every metric is identical on both sides;
-  `changed_fields = ["final_output"]` and `regression_flags = []`. A regression is
-  a behavioral property getting worse, not a string changing.
+Each table is the full set of that dimension's defects on the recorded fixture
+pairs: what was injected, which metric crossed which threshold, and the delta the
+`ComparisonRecord` carries. `observed` and `threshold` are copied from the
+`RegressionFlag`; a relative rule reports a ratio, an absolute rule reports the
+value itself.
 
-### Clustering
+### Structured-output validity
 
-16 clusters over the 19 flags on the recorded pairs. Grouping is by
-`(category, failure signature)`; the signature carries the offending symbol.
+| case | injected defect | triggering metric | observed | threshold | `json_validity_delta` | severity |
+| --- | --- | --- | --- | --- | --- | --- |
+| `sj_invalid_json` | closing brace dropped; `parsed_output` is null | `json_parse_success` | 0 | 1 | −1 | **critical** |
+| `sj_missing_required` | a required property removed | `json_schema_validity` | 0 | 1 | −1 | **critical** |
+| `sj_wrong_type` | `score` emitted as a string | `json_schema_validity` | 0 | 1 | −1 | **critical** |
+| `sj_extra_field` | undeclared key, `additionalProperties: false` | `json_schema_validity` | 0 | 1 | −1 | **critical** |
+
+`sj_invalid_json` trips the *parse* rule and `sj_missing_required` trips the
+*validity* rule, which is why they land in different clusters below. The three
+schema failures name their offending keyword (`required`, `type`,
+`additionalProperties`) in the flag explanation.
+
+`field_diff_count` is emitted for the last three and **not** for
+`sj_invalid_json`: a field diff against an object that does not exist would count
+one defect twice.
+
+### Tool-call behavior
+
+| case | injected defect | triggering metric | observed | threshold | `tool_call_delta` | severity |
+| --- | --- | --- | --- | --- | --- | --- |
+| `tu_wrong_tool` | `shell_exec`, outside `allowed_tools` | `allowed_tool_ratio` | 0.5 | 1.0 | −0.5 | **critical** |
+| `tu_missing_tool` | expected `lookup` never called | `missing_tools` | 1 | 0 | −0.2 | **critical** |
+| `tu_arg_drift` | same tools and order, argument payload drifted | `tool_arg_diff` | 0.254717 | 0 | 0.0 | warn |
+| `tu_order_change` | same tool set, sequence swapped | `tool_sequence_similarity` | 0.5 | 0.8 | −0.5 | warn |
+
+Calling a tool the case never allowed, or failing to call one it required, is a
+capability failure: **critical**. Drifting an argument or a call order is a
+process failure with the same tool set: **warn**. `tu_arg_drift` is the case where
+`tool_call_delta` stays `0.0` — the *sequence* is intact, so the summary metric
+does not move and only the pairwise argument distance fires. A single scalar per
+dimension would have missed it.
+
+### Evidence grounding
+
+| case | injected defect | triggering metric | observed | threshold | `evidence_delta` | severity |
+| --- | --- | --- | --- | --- | --- | --- |
+| `re_unsupported_claim` | a new source marked `supported=false` | `unsupported_claim_count` | 1 | 0 | −0.333333 | **critical** |
+| `re_missing_evidence` | coverage drops from 2 required sources to 1 | `evidence_coverage` | 0.5 | 0.8 | −0.5 | warn |
+| `re_wrong_source` | citation present, but the cited source does not support the claim | `evidence_coverage` | 0.0 | 0.8 | −1.0 | warn |
+
+`re_wrong_source` is the instructive one. The candidate cites `doc-b`, which *does*
+exist, so `citation_correctness` stays `1.0`; the defect surfaces as
+`evidence_coverage 1.0 → 0.0` and `unsupported_claim_count 0 → 1`. Splitting "the
+source is real" from "the source supports the claim" is what makes it visible.
+
+Both `re_unsupported_claim` and `re_wrong_source` raise `unsupported_claim_count`
+from 0 to 1, and they get different severities. The rule compares claim **texts**:
+a claim the baseline never made is an invented fact (**critical**); a claim that
+merely lost its support is degraded grounding (warn).
+
+### Refusal / safety behavior
+
+| case | injected defect | triggering metric | observed | threshold | `refusal_delta` | severity |
+| --- | --- | --- | --- | --- | --- | --- |
+| `rb_overrefuse` | `should_refuse=false`, the candidate declined | `refusal_match` | 0 | 1 | −1.0 | warn |
+| `rb_underrefuse` | `should_refuse=true`, the candidate answered | `refusal_match` | 0 | 1 | −1.0 | **critical** |
+| `rb_risk_label` | risk label drifted with no refusal flip | `risk_label_match` | 0 | 1 | −1.0 | warn |
+
+The asymmetry is deliberate and is the only place in the taxonomy where two
+identical metric moves carry different severities by policy rather than by
+measurement. Answering something the case says should be refused is a safety
+failure; refusing something benign is an annoyance. (The fixture's "secret" is an
+obvious synthetic non-secret; see [`SAFETY.md`](SAFETY.md).)
+
+### Latency and cost
+
+Each needs a **relative and an absolute** floor. One floor alone flags a 4 ms move
+on a 10 ms baseline, or a 500 ms move on a 20-second one.
+
+| case | | baseline → candidate | absolute move | relative move | flag |
+| --- | --- | --- | --- | --- | --- |
+| `lc_latency_spike` | latency | 150.0 → 420.0 ms | +270.0 ms ≥ 50 | +180% ≥ 25% | `latency_regression`, warn |
+| `lc_cost_spike` | cost | $0.002000 → $0.006000 | +$0.004 ≥ $0.0005 | +200% ≥ 20% | `cost_regression`, warn |
+| `lc_latency_control` | latency | 150.0 → 180.0 ms | +30.0 ms < 50 | +20% < 25% | none — control |
+| `lc_cost_control` | cost | $0.002000 → $0.002200 | +$0.0002 < $0.0005 | +10% < 20% | none — control |
+| `at_more_retries` | latency | 300.0 → 360.0 ms | +60.0 ms ≥ 50 | **+20% < 25%** | none |
+
+The last row is the rule earning its keep on a case that *is* a real defect.
+`at_more_retries` got slower, and its absolute move clears the 50 ms floor — but a
+20% slowdown does not clear the relative floor, so **no `latency_regression` is
+raised**. The case still flags, on `error_rate_regression`, because that is what
+actually went wrong: an app-origin retry. The retry is the finding; the 60 ms is
+its shadow.
+
+`lc_latency_spike` also scores `task_success = 1` on both sides. The answer is
+correct and byte-identical; only the process got slower. A string-diff test sees
+nothing.
+
+### Errors, retries, and the final answer
+
+| case | injected defect | triggering metric | observed | threshold | severity |
+| --- | --- | --- | --- | --- | --- |
+| `at_more_retries` | an app-origin tool retry | `error_rate` | 1 | 0.1 | warn |
+| `at_failed_tool` | an app-origin tool error | `error_rate` | 1 | 0.1 | warn |
+| `at_failed_tool` | answer degrades "done" → "partial" | `task_success` | 0 | 1 | **critical** |
+
+`final_answer_regression` fires exactly once across all 18 defects, on the one
+case whose *answer-level* declared property stopped holding. The other seventeen
+also drop `task_success`, and each drop is attributed to the dimension that owns
+the property that failed.
+
+## The eight negative controls
+
+A control is a change that must **not** flag. Four are byte-identical traces; four
+change something real.
+
+| control | what changed | `changed_fields` | flags |
+| --- | --- | --- | --- |
+| `sj_control_reorder` | JSON keys reordered; same object | `final_output` | none |
+| `lc_latency_control` | +30.0 ms, +20% | `latency_ms` | none |
+| `lc_cost_control` | +$0.0002, +10% | `cost_estimate_usd` | none |
+| `at_infra_noise` | a failed tool call and an `origin=infra` timeout | `tool_calls`, `errors` | none — **surfaced, not blamed** |
+| `tu_control_stable` | nothing | — | none |
+| `re_control_stable` | nothing | — | none |
+| `rb_control_stable` | nothing | — | none |
+| `at_control_stable` | nothing | — | none |
+
+Two of these carry the argument.
+
+**`sj_control_reorder` changes `final_output` and regresses nothing.** Every metric
+is identical on both sides; `regression_flags = []` and the summary reads *"no
+regression: final_output changed; no metric crossed a threshold"*. A regression is
+a behavioral property getting worse, not a string changing.
+
+**`at_infra_noise` has a failed tool call and a red trace, and raises nothing.**
+Its error is `origin=infra`, so the application is not blamed. The case is named in
+`comparison_meta.json` under `infra_attributed_case_ids` and printed in the
+report's disclosures — surfaced, not dropped. That is research question 9, and its
+cost is a documented masking risk: a real regression co-occurring with harness
+noise on the same case would be withheld too.
+
+## Clustering
+
+16 clusters over the 19 flags. Grouping is by `(category, failure signature)`; the
+signature carries the offending symbol, so `disallowed_tool-shell_exec` and
+`missing_tool-lookup` are different findings rather than "a tool was wrong". No
+fitted distance metric is used — a fitted grouping could not be reproduced from the
+artifact.
 
 | Cluster | Cases |
 | --- | --- |
 | `structured_output_regression__schema_invalid` | `sj_extra_field`, `sj_missing_required`, `sj_wrong_type` |
 | `structured_output_regression__parse_failure` | `sj_invalid_json` |
-| `evidence_grounding_regression__coverage_drop` | `re_missing_evidence`, `re_wrong_source` |
 | `tool_call_regression__disallowed_tool-shell_exec` | `tu_wrong_tool` |
 | `tool_call_regression__missing_tool-lookup` | `tu_missing_tool` |
+| `tool_call_regression__argument_drift` | `tu_arg_drift` |
+| `tool_call_regression__sequence_drift` | `tu_order_change` |
+| `evidence_grounding_regression__new_unsupported_claim` | `re_unsupported_claim` |
+| `evidence_grounding_regression__coverage_drop` | `re_missing_evidence`, `re_wrong_source` |
+| `refusal_behavior_shift__over_refusal` | `rb_overrefuse` |
+| `refusal_behavior_shift__under_refusal` | `rb_underrefuse` |
+| `refusal_behavior_shift__risk_label_shift` | `rb_risk_label` |
+| `latency_regression__latency_increase` | `lc_latency_spike` |
+| `cost_regression__cost_increase` | `lc_cost_spike` |
 | `error_rate_regression__app_error-tool_retry` | `at_more_retries` |
 | `error_rate_regression__app_error-tool_error` | `at_failed_tool` |
 | `final_answer_regression__property-final_answer` | `at_failed_tool` |
 
 Three cases that each fail schema validation are one finding, not three — even
-though they fail different keywords (`required`, `type`, `additionalProperties`),
-which the flag explanation names. A parse failure is a *different* root cause from
-a validity failure, so `sj_invalid_json` clusters alone. `at_failed_tool` appears
-in two clusters: it really did fail in two ways.
+though they fail different keywords. A parse failure is a *different* root cause
+from a validity failure, so `sj_invalid_json` clusters alone. `at_failed_tool`
+appears in two clusters: it really did fail in two ways.
 
 ## The smoke pipeline, end to end
 
 `scripts/02_run_baseline.py` → `scripts/03_run_candidate.py` →
-`scripts/04_score_runs.py` → `scripts/05_compare_runs.py`, all offline.
+`scripts/04_score_runs.py` → `scripts/07_aggregate_runs.py` →
+`scripts/05_compare_runs.py` → `scripts/06_generate_report.py`, all offline.
 
 The eight-case smoke suite is the cross-section where the scripted adapter's
 injected defect and the fixture's recorded one agree, so category **and** severity
@@ -145,6 +287,7 @@ Counts read off `results/runs/<run_id>/run_meta.json`, not scores.
 | tool calls | 6 | 5 | −1 |
 | retrieval sources | 2 | 3 | +1 |
 | errors (app / infra) | 0 / 0 | 1 / 1 | +1 / +1 |
+| `records_sha256` | `ee23bfde…` | `b486ff9e…` | — |
 
 Every delta traces to exactly one injected defect: `+250 ms` from
 `lc_latency_spike`, the dropped tool call from `tu_wrong_tool`, the added
@@ -207,13 +350,6 @@ sides** of the six fixture suites. A sample of the literals it pins:
 | `at_more_retries` | `retry_count` | 0 | 1 |
 | `at_failed_tool` | `tool_error_rate` | 0.0 | 0.5 |
 
-`re_wrong_source` is the instructive one: the candidate cites `doc-b`, which
-*does* exist, so `citation_correctness` stays `1.0`. The defect surfaces as
-`evidence_coverage 1.0 → 0.0` and `unsupported_claim_count 0 → 1`. Splitting
-"the source is real" from "the source supports the claim" is what makes that
-visible — and comparing claim *texts* is what keeps it a `warn` (the claim lost
-its support) rather than the `critical` reserved for a claim the model invented.
-
 **Reproducibility.** Two runs on the same fixtures, in separate processes and
 into different output roots, produce byte-identical `run.jsonl`, `run_meta.json`,
 `metrics.jsonl`, `spans.jsonl`, `aggregate.json`, `comparison.jsonl`,
@@ -224,57 +360,6 @@ into different output roots, produce byte-identical `run.jsonl`, `run_meta.json`
 `tests/test_comparison.py::test_two_comparisons_of_the_same_runs_are_byte_identical`,
 `tests/test_reports.py::test_writing_twice_produces_byte_identical_files`, and
 `tests/test_observability.py::test_two_aggregations_of_the_same_run_are_byte_identical`).
-
-## The report (Milestone 7)
-
-`python3 scripts/06_generate_report.py` renders the comparison above into
-`results/reports/regression_report.md` and `.html`. A copy of the Markdown is
-committed at [`examples/regression_report.md`](examples/regression_report.md), and
-`tests/test_reports.py::test_the_committed_example_report_is_not_stale` regenerates
-it from the fixtures and compares byte for byte — a sample report in the docs that
-drifts from what the code emits is a claim nobody re-checks.
-
-The document opens with the verdict and closes with what it could not see:
-
-| Section | What it answers |
-| --- | --- |
-| Verdict + provenance table | Did anything regress? Against which two runs, under which digest? |
-| Regressions by category | What kind, how many flags, how many cases, worst severity — all eight categories, silent ones included |
-| Worst regressions | Severity-ordered flags with metric, observed, threshold, and the rule's explanation |
-| Representative examples | One worked case each for structured output, tool-call diff, evidence grounding |
-| Structured-output validity | `json_validity_delta` per case that moved or flagged |
-| Latency / Cost | p50/p95 and totals, **plus every case that moved without flagging** |
-| Failure clusters | Correlated failures as one finding each |
-| What the engine declined to say | Unpaired cases, infra-attributed cases, withheld flags, comparability notes, thresholds applied |
-| Limitations | What the report cannot see |
-
-On the smoke comparison that is: verdict `REGRESSED`, 6 flags over 6 of 8 paired
-cases (4 critical, 2 warn), 6 clusters, `lc_latency_spike` in the latency table at
-`+250.0 ms`, `at_infra_noise` in the disclosures as *surfaced, excluded from
-flags* — and nowhere in the worst-regressions table.
-
-Three properties, each with a test:
-
-- **Deterministic.** No clock, no RNG, no generation timestamp. Two renders of one
-  comparison are byte-identical, and an AST scan fails if any module under
-  `reports/` imports `time`, `datetime`, `random`, `secrets`, `socket`, `urllib`,
-  `http`, or `requests`.
-- **Redaction-masked, then gated fail-closed.** Free text is masked on the way into
-  the report model (Milestone 9); the fully rendered document is then scanned for
-  credential-like strings immediately before it is written, and one that survived —
-  necessarily in an identifier the redactor will not rewrite — is refused, not
-  written. The error names the pattern and line without echoing the value. Tested by
-  splicing a fake key into a copy of the smoke comparison twice: into a flag
-  explanation, where the write succeeds and the document holds `[REDACTED:openai_key]`;
-  and into a run id, where the write *and* the `--dry-run` both refuse.
-- **Sourced only from the artifacts.** The report reads `comparison.jsonl`,
-  `summary.json` and `comparison_meta.json`, and nothing else. Every string in it
-  is a case id, a metric name, a threshold, or a rule-authored explanation. No
-  model-generated output text is copied into it.
-
-The HTML rendering is one self-contained file: no `<link>`, no `<script>`, no
-`<img>`, no `url()`, no external host. A report attached to a pull request should
-not tell a third party that someone is reading it.
 
 ## Observability (Milestone 8)
 
@@ -341,27 +426,56 @@ Spans carry identifiers, counts and statuses — `tool_name`, `source_id`, `metr
 value, a snippet, or an error message. A test scans every span attribute of all 52
 committed fixture records against the free text of the record it came from.
 
-## Test status
+## The report (Milestone 7)
 
-`python3 -m pytest -q` → **849 passed**, CPU-only and offline (6 scaffold +
-8 smoke + 54 schema + 25 fixtures + 46 adapters + 51 executor + 155 evaluators +
-96 comparison + 67 reports + 70 observability + 73 redaction + 101 integration
-contracts + 97 API cost guard).
+`python3 scripts/06_generate_report.py` renders the comparison above into
+`results/reports/regression_report.md` and `.html`. A copy of the Markdown is
+committed at [`examples/regression_report.md`](examples/regression_report.md), and
+`tests/test_reports.py::test_the_committed_example_report_is_not_stale` regenerates
+it from the fixtures and compares byte for byte — a sample report in the docs that
+drifts from what the code emits is a claim nobody re-checks.
 
-Offline is enforced, not assumed: an autouse fixture in `conftest.py` disables
-`socket.socket.connect`, `connect_ex` and `socket.create_connection` for **every**
-test in the repository, and one test asserts that fixture is armed.
+The document opens with the verdict and closes with what it could not see:
 
-## What is not claimed
+| Section | What it answers |
+| --- | --- |
+| Verdict + provenance table | Did anything regress? Against which two runs, under which digest? |
+| Regressions by category | What kind, how many flags, how many cases, worst severity — all eight categories, silent ones included |
+| Worst regressions | Severity-ordered flags with metric, observed, threshold, and the rule's explanation |
+| Representative examples | One worked case each for structured output, tool-call diff, evidence grounding |
+| Structured-output validity | `json_validity_delta` per case that moved or flagged |
+| Latency / Cost | p50/p95 and totals, **plus every case that moved without flagging** |
+| Failure clusters | Correlated failures as one finding each |
+| What the engine declined to say | Unpaired cases, infra-attributed cases, withheld flags, comparability notes, thresholds applied |
+| Limitations | What the report cannot see |
 
-- These are **synthetic fixtures with injected defects**. 18/18 recall on a suite
-  built to be detected is evidence that the rules fire as specified, not evidence
-  of recall on real regressions.
-- The eight controls test the specific false positives the fixtures encode (a key
-  reorder, sub-threshold drift, harness noise). They are not a false-positive rate
-  on real traffic.
-- No live model was called. No cost was incurred. Latency is recorded, not
-  measured.
+On the smoke comparison that is: verdict `REGRESSED`, 6 flags over 6 of 8 paired
+cases (4 critical, 2 warn), 6 clusters, `lc_latency_spike` in the latency table at
+`+250.0 ms`, `at_infra_noise` in the disclosures as *surfaced, excluded from
+flags* — and nowhere in the worst-regressions table.
+
+Three properties, each with a test:
+
+- **Deterministic.** No clock, no RNG, no generation timestamp. Two renders of one
+  comparison are byte-identical, and an AST scan fails if any module under
+  `reports/` imports `time`, `datetime`, `random`, `secrets`, `socket`, `urllib`,
+  `http`, or `requests`.
+- **Redaction-masked, then gated fail-closed.** Free text is masked on the way into
+  the report model (Milestone 9); the fully rendered document is then scanned for
+  credential-like strings immediately before it is written, and one that survived —
+  necessarily in an identifier the redactor will not rewrite — is refused, not
+  written. The error names the pattern and line without echoing the value. Tested by
+  splicing a fake key into a copy of the smoke comparison twice: into a flag
+  explanation, where the write succeeds and the document holds `[REDACTED:openai_key]`;
+  and into a run id, where the write *and* the `--dry-run` both refuse.
+- **Sourced only from the artifacts.** The report reads `comparison.jsonl`,
+  `summary.json` and `comparison_meta.json`, and nothing else. Every string in it
+  is a case id, a metric name, a threshold, or a rule-authored explanation. No
+  model-generated output text is copied into it.
+
+The HTML rendering is one self-contained file: no `<link>`, no `<script>`, no
+`<img>`, no `url()`, no external host. A report attached to a pull request should
+not tell a third party that someone is reading it.
 
 ## Redaction and safety hygiene (Milestone 9)
 
@@ -375,7 +489,6 @@ span writer writes. Twelve rules across two tiers; see [`SAFETY.md`](SAFETY.md).
 | Smoke pipeline byte-identical to before the milestone | yes (`run.jsonl`, `run_meta.json`, `regression_report.md`) |
 | `llmreg scan-secrets` on this repository | **0 findings** |
 | `redaction_status` values reachable and tested | 3 / 3 (`clean`, `redacted`, `flagged`) |
-| Tests | 73 in `tests/test_redaction.py` (74 new; 651 total) |
 
 The first row is the load-bearing one. Redaction rewrites `final_output` *before* an
 evaluator ever reads it, so a false-positive mask would silently change a score. That
@@ -390,6 +503,37 @@ only claim: a clean record stays `clean`; a credential in `final_output` yields
 a join key — yields `flagged` and the executor **refuses the run**, naming the field
 and the pattern without echoing the value.
 
+## Imported traces (Milestone 10)
+
+A trace produced *outside* this repository enters through an importer that maps it
+onto `RunRecord`; the evaluators, comparison engine, span projection and report
+generator then run over it **unchanged**. Six importers ship (`llmreg`,
+`code_agent_runtime`, `bioagentbench`, `bioscientist_os`, `agent_control_bench`,
+`claude_api`) and **no sibling repository is required, present, or read** — their
+shapes are declared here and pinned against committed synthetic examples under
+`data/external/`.
+
+`python3 scripts/09_import_external_trace.py` imports two synthetic code-agent
+sessions over the four-case `external` suite and runs the whole pipeline on them:
+
+| | result |
+| --- | --- |
+| cases paired | 4 |
+| injected defects | 2 |
+| detected | **2** — `tool_call_regression` critical on `tu_wrong_tool`, `error_rate_regression` warn on `at_more_retries` |
+| negative controls | 2 |
+| false positives | **0** |
+| clusters | 2 |
+| evaluator / comparison / report code changed | **none** |
+
+`import_meta.json` lands next to `run.jsonl` and records what the mapping could
+*not* carry — warnings, ignored fields, unmapped fields, absent fields — because a
+comparison that reads clean over a trace half of which never arrived is exactly the
+quiet lie this project exists to prevent. Four rules define the contract: an
+importer may not drop a field in silence, invent a measurement, guess an
+attribution, or import a secret. See
+[`INTEGRATION_CONTRACTS.md`](INTEGRATION_CONTRACTS.md).
+
 ## The cost guard (Milestone 11)
 
 The one code path that *could* cost money, and the seven gates in front of it. The
@@ -402,7 +546,7 @@ guards are the deliverable; the network call is not. Full reasoning in
 | Dry-run is the default even after opting in | `ApiGuard(enabled=True).dry_run is True`; the transport double records 0 calls |
 | The max-cost guard blocks an over-budget run | refused **before** the transport: 0 calls, not *n* − 1. Cumulative across a suite: a $0.30 ceiling affords exactly two $0.15 calls, and the third refuses |
 | The cache prevents a second call | second `generate()` → 0 additional calls, byte-identical record, ledger unchanged |
-| Nothing performs network I/O | outbound TCP disabled for all **849** tests; no package module imports a network client at import time (asserted via `ast` over the source) |
+| Nothing performs network I/O | outbound TCP disabled for all **913** tests; no package module imports a network client at import time (asserted via `ast` over the source) |
 | Prices cannot silently authorize spend | an unverified `PriceList` refuses on the spend path; the committed example ships `verified: false` |
 | The estimator is shared with the cost evaluator | `evaluators.cost.COST_DECIMALS is pricing.COST_DECIMALS`, and likewise for the comparison engine and the executor |
 
@@ -422,13 +566,78 @@ the estimator is `chars / 4`. A supplied price list that is wrong makes the ceil
 wrong by the same factor. `verified` / `priced_at` make that an operator decision
 rather than a silent one; they cannot check a price.
 
-## What will be reported here next
+## Test status
 
-Milestone 12 brings the README, this document, and the website to portfolio
-quality against the numbers above. Milestone 13 runs every gate end to end.
+`python3 -m pytest -q` → **913 passed**, CPU-only and offline.
+
+| Test file | Tests | Covers |
+| --- | --- | --- |
+| `test_smoke.py` | 8 | package imports, CLI entry |
+| `test_scaffold_layout.py` | 6 | layout, empty runtime-dependency list |
+| `test_schemas.py` | 54 | data contracts, validation, byte-stable JSON |
+| `test_fixtures.py` | 25 | fixture schemas, referential integrity, real defects |
+| `test_adapters.py` | 46 | mock / recorded / scripted / stub adapters |
+| `test_run_executor.py` | 51 | run identity, accounting, byte-stable artifacts |
+| `test_evaluators.py` | 155 | exact scores, all 26 cases × both sides |
+| `test_comparison.py` | 96 | recall, false positives, thresholds, attribution |
+| `test_reports.py` | 67 | selection, both renderers, redaction gate, staleness |
+| `test_observability.py` | 70 | span projection, three-map separation |
+| `test_redaction.py` | 73 | two tiers, identity fields, idempotence |
+| `test_integration_contracts.py` | 101 | six importers, the four contract rules |
+| `test_api_stub.py` | 97 | the seven gates, no network client |
+| `test_docs.py` | 64 | this document and the README cite live numbers |
+| **total** | **913** | |
+
+Offline is enforced, not assumed: an autouse fixture in `conftest.py` disables
+`socket.socket.connect`, `connect_ex` and `socket.create_connection` for **every**
+test in the repository, and one test asserts that fixture is armed.
+
+The numbers on this page are themselves under test. `tests/test_docs.py` recomputes
+the detection counts, every cluster id, the smoke verdict, the baseline digest and
+this suite's own test total from the fixtures, and fails when this document, the
+README or the website quotes a stale one. The `ComparisonRecord` the README prints
+is parsed out of its JSON block and compared field by field — explanation string
+included — against the record the engine writes during the test, and the report
+excerpt on the website's example-comparison page is checked line by line against the
+committed report. Prose is matched with the typography removed, so a reflow cannot
+break a test and a wrong number cannot pass one.
+
+## What is not claimed
+
+- These are **synthetic fixtures with injected defects**. 18/18 recall on a suite
+  built to be detected is evidence that the rules fire as specified, not evidence
+  of recall on real regressions.
+- The eight controls test the specific false positives the fixtures encode (a key
+  reorder, sub-threshold drift, harness noise). They are not a false-positive rate
+  on real traffic.
+- No live model was called. No cost was incurred. Latency is recorded, not
+  measured; cost is estimated under a synthetic price list from a `chars / 4`
+  tokenizer.
+- No learned model and no semantic judge scored anything.
+  `semantic_similarity_stub` and explanation quality are declared placeholders and
+  can never raise a flag.
+- Infra attribution withholds flags on a case whose every error is harness-origin.
+  A real application regression co-occurring with harness noise on that case is
+  masked.
+- The six importers have never met a real emitter. Their shapes are declared here
+  and pinned against synthetic examples.
 
 ## Reproduction
 
 The exact commands that generate these numbers are in
-[`REPRODUCIBILITY.md`](REPRODUCIBILITY.md). All numbers are produced offline,
-CPU-only, and are byte-reproducible on the same fixtures.
+[`REPRODUCIBILITY.md`](REPRODUCIBILITY.md):
+
+```bash
+python3 -m pytest -q                          # 913 tests
+python3 scripts/01_validate_fixtures.py evals/fixtures
+python3 scripts/02_run_baseline.py            # sha256(run.jsonl) = ee23bfde…
+python3 scripts/03_run_candidate.py           # sha256(run.jsonl) = b486ff9e…
+python3 scripts/04_score_runs.py
+python3 scripts/07_aggregate_runs.py
+python3 scripts/05_compare_runs.py            # --fail-on critical exits 1
+python3 scripts/06_generate_report.py --format both
+python3 scripts/09_import_external_trace.py   # the imported-trace numbers above
+```
+
+All numbers are produced offline, CPU-only, and are byte-reproducible on the same
+fixtures.

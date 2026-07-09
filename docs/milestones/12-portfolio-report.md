@@ -1,6 +1,9 @@
 # Milestone 12 — Final portfolio report
 
-**Status: planned.**
+**Status: Complete.** README, `docs/RESULTS.md` and all 13 website pages now cite
+only numbers a committed run produces, and `tests/test_docs.py` (64 tests)
+recomputes those numbers from the fixtures and fails when a document quotes a stale
+one. 913 tests pass.
 
 ## Goal
 

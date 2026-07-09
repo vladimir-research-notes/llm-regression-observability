@@ -32,7 +32,7 @@
   and the seven gates in front of it. The guards are the deliverable; the network
   call is not. The package ships no network client at all.</p>
 
-  <p><span class="status done">status: Milestone 11 complete — <strong>all five protections</strong> (explicit opt-in, dry-run by default, a shared token/cost estimator, a hard max-cost ceiling, a keyed gitignored response cache), plus two the spec did not ask for: a price list that <strong>cannot silently authorize spend</strong>, and a repository-wide network kill switch. 97 tests; 849 total, all offline</span></p>
+  <p><span class="status done">status: Milestone 11 complete — <strong>all five protections</strong> (explicit opt-in, dry-run by default, a shared token/cost estimator, a hard max-cost ceiling, a keyed gitignored response cache), plus two the spec did not ask for: a price list that <strong>cannot silently authorize spend</strong>, and a repository-wide network kill switch. 97 tests; 913 total, all offline</span></p>
 
   <h2>Brief explanation</h2>
   <p>An evaluation harness gets re-run constantly — after a scorer changes, after
@@ -211,7 +211,7 @@ adapter = ApiAdapterStub(
   <ul>
     <li><strong>Complete</strong> (Milestone 11). All five required protections, plus verified-pricing provenance and a repository-wide network kill switch.</li>
     <li><strong>No CLI subcommand can spend money.</strong> <code>build_adapter("api-stub")</code> constructs the adapter with the default, opted-out guard and offers no parameter that could opt it in.</li>
-    <li><strong>Offline is enforced, not assumed.</strong> An autouse fixture in <code>conftest.py</code> disables <code>socket.socket.connect</code>, <code>connect_ex</code> and <code>socket.create_connection</code> for all 849 tests; one test asserts the fixture is armed.</li>
+    <li><strong>Offline is enforced, not assumed.</strong> An autouse fixture in <code>conftest.py</code> disables <code>socket.socket.connect</code>, <code>connect_ex</code> and <code>socket.create_connection</code> for all 913 tests; one test asserts the fixture is armed.</li>
   </ul>
 
   <h2>Relevant files</h2>
@@ -228,7 +228,7 @@ adapter = ApiAdapterStub(
 
   <h2>Current test/result status</h2>
   <ul>
-    <li><code>python3 -m pytest -q</code> → <strong>849 passed</strong>, CPU-only and offline.</li>
+    <li><code>python3 -m pytest -q</code> → <strong>913 passed</strong>, CPU-only and offline.</li>
     <li><code>tests/test_api_stub.py</code> → <strong>97 tests</strong>.</li>
     <li>Adversarial checks run during development: removing <code>ledger.check(...)</code> from the ladder fails <strong>5</strong> tests, including the one asserting the ceiling is checked <em>before</em> the transport is looked for; replacing the cache lookup with <code>entry = None</code> fails <strong>6</strong>.</li>
     <li>The <code>pricing.py</code> refactor touched scored paths and changed no artifact: smoke baseline <code>sha256(run.jsonl)</code> still <code>ee23bfde…</code>, the same six clusters detected, the committed example report regenerates byte-identically.</li>

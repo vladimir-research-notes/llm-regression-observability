@@ -30,15 +30,24 @@
   <h1>Roadmap &amp; research directions</h1>
   <p class="lede">Where the work could go as research, framed honestly as open
   questions plus what would have to be built and shown. Full text in
-  <code>docs/PAPER_PATH.md</code>. The current scaffold demonstrates none of these
+  <code>docs/PAPER_PATH.md</code>. The repository demonstrates none of these
   yet; it provides the contracts, deterministic ground-truth fixtures, and the
   detection/report pipeline that make the studies runnable.</p>
 
   <h2>Build path (near term)</h2>
-  <p>Milestones 0–13 (see <a href="milestones.html">Milestones</a>) deliver the
-  runnable framework: schemas, fixtures, adapters, executor, evaluators,
-  comparison, reports, observability, redaction, integration contracts, and an
-  optional guarded API adapter.</p>
+  <p>Milestones 0–12 (see <a href="milestones.html">Milestones</a>) have delivered
+  the runnable framework: schemas, fixtures, adapters, executor, evaluators,
+  comparison, reports, observability, redaction, integration contracts, an optional
+  guarded API adapter, and documentation whose numbers are under test. Milestone 13
+  is a final gate run and hygiene check — no new capability.</p>
+
+  <h2>Product path (shortest useful step)</h2>
+  <p>The CI gate already exists. <code>llmreg compare --fail-on critical</code> exits
+  1 on a critical regression, so a model, prompt, or tool bump can be blocked at the
+  pull request, with the rendered report attached. What that needs before it is worth
+  running against a real system is direction 1 below: thresholds chosen by hand on
+  synthetic fixtures will misfire on sampled models, and a gate that misfires gets
+  turned off.</p>
 
   <h2>Research directions (longer term)</h2>
   <ol>

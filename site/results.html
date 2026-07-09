@@ -28,15 +28,20 @@
 </header>
 <main>
   <h1>Results</h1>
-  <p><span class="status done">status: Milestone 11 complete — 18/18 injected defects detected with their annotated category and severity; 0 false positives on the 8 negative controls; the comparison renders as a deterministic, redaction-gated report; each run projects into a span tree and reduces to suite metrics that keep harness signals separate; a masking redactor runs in front of every write, and 52/52 committed fixture records pass through it unchanged; traces from outside this repository enter through versioned import contracts; and the optional paid-API adapter sits behind seven gates and no network client; 849 tests passing, all offline</span></p>
+  <p class="lede">Every number on this page is produced by a committed, offline,
+  byte-reproducible run. Nothing is illustrative and nothing is rounded by hand.
+  The commands that regenerate all of it are at the bottom.</p>
+
+  <p><span class="status done">status: Milestone 12 complete — 18 of 18 injected defects detected with their annotated category and severity; 0 false positives on the 8 negative controls; 19 flags, 16 clusters; the comparison renders as a deterministic, redaction-gated report; each run projects into a span tree and reduces to suite metrics that keep harness signals separate; traces from outside this repository enter through versioned import contracts; the optional paid-API adapter sits behind seven gates and no network client; 913 tests passing, all offline</span></p>
 
   <div class="callout">Everything below is measured on <strong>synthetic fixtures
-  with injected defects</strong>. 18/18 recall on a suite built to be detected is
-  evidence that the rules fire as specified and that the negative controls do not —
-  it is <em>not</em> evidence of recall on real regressions in real systems, and no
-  such claim is made. See <a href="limitations.html">Limitations</a>.</div>
+  with injected defects</strong>. Detecting 18 of 18 defects on a suite built to be
+  detected is evidence that the rules fire as specified and that the negative
+  controls do not — it is <em>not</em> evidence of recall on real regressions in
+  real systems, and no such claim is made. See
+  <a href="limitations.html">Limitations</a>.</div>
 
-  <h2>Detection on ground truth (Milestone 6)</h2>
+  <h2>Headline: detection on ground truth</h2>
   <p>Each fixture suite ships an <code>expected.json</code> oracle stating, per
   case, which regression a correct detector must raise, at which severity, attributed
   to app or infra. <code>tests/test_comparison.py</code> asserts the engine against
@@ -87,40 +92,170 @@
   that rule, all 18 would <em>also</em> report a
   <code>final_answer_regression</code>.</p>
 
-  <h3>The three rows that carry the argument</h3>
+  <h2>Every injected defect, dimension by dimension</h2>
+  <p>Each table is the complete set of that dimension's defects on the recorded
+  fixture pairs: what was injected, which metric crossed which threshold, and the
+  delta the <code>ComparisonRecord</code> carries. <code>observed</code> and
+  <code>threshold</code> are copied from the <code>RegressionFlag</code>; a relative
+  rule reports a ratio, an absolute rule reports the value itself.</p>
+
+  <h3>Structured-output validity</h3>
+  <table>
+    <tr><th>case</th><th>injected defect</th><th>triggering metric</th><th>observed</th><th>threshold</th><th><code>json_validity_delta</code></th><th>severity</th></tr>
+    <tr><td><code>sj_invalid_json</code></td><td>closing brace dropped; <code>parsed_output</code> is null</td><td><code>json_parse_success</code></td><td>0</td><td>1</td><td>−1</td><td><span class="pill critical">critical</span></td></tr>
+    <tr><td><code>sj_missing_required</code></td><td>a required property removed</td><td><code>json_schema_validity</code></td><td>0</td><td>1</td><td>−1</td><td><span class="pill critical">critical</span></td></tr>
+    <tr><td><code>sj_wrong_type</code></td><td><code>score</code> emitted as a string</td><td><code>json_schema_validity</code></td><td>0</td><td>1</td><td>−1</td><td><span class="pill critical">critical</span></td></tr>
+    <tr><td><code>sj_extra_field</code></td><td>undeclared key, <code>additionalProperties: false</code></td><td><code>json_schema_validity</code></td><td>0</td><td>1</td><td>−1</td><td><span class="pill critical">critical</span></td></tr>
+  </table>
+  <p><code>sj_invalid_json</code> trips the <em>parse</em> rule and the other three
+  trip the <em>validity</em> rule, which is why they land in different clusters.
+  <code>field_diff_count</code> is emitted for the last three and <strong>not</strong>
+  for <code>sj_invalid_json</code>: a field diff against an object that does not exist
+  would count one defect twice.</p>
+
+  <h3>Tool-call behavior</h3>
+  <table>
+    <tr><th>case</th><th>injected defect</th><th>triggering metric</th><th>observed</th><th>threshold</th><th><code>tool_call_delta</code></th><th>severity</th></tr>
+    <tr><td><code>tu_wrong_tool</code></td><td><code>shell_exec</code>, outside <code>allowed_tools</code></td><td><code>allowed_tool_ratio</code></td><td>0.5</td><td>1.0</td><td>−0.5</td><td><span class="pill critical">critical</span></td></tr>
+    <tr><td><code>tu_missing_tool</code></td><td>expected <code>lookup</code> never called</td><td><code>missing_tools</code></td><td>1</td><td>0</td><td>−0.2</td><td><span class="pill critical">critical</span></td></tr>
+    <tr><td><code>tu_arg_drift</code></td><td>same tools and order, argument payload drifted</td><td><code>tool_arg_diff</code></td><td>0.254717</td><td>0</td><td>0.0</td><td><span class="pill warn">warn</span></td></tr>
+    <tr><td><code>tu_order_change</code></td><td>same tool set, sequence swapped</td><td><code>tool_sequence_similarity</code></td><td>0.5</td><td>0.8</td><td>−0.5</td><td><span class="pill warn">warn</span></td></tr>
+  </table>
+  <p>Calling a tool the case never allowed, or failing to call one it required, is a
+  capability failure: <strong>critical</strong>. Drifting an argument or a call order
+  is a process failure with the same tool set: <strong>warn</strong>.
+  <code>tu_arg_drift</code> is the case where <code>tool_call_delta</code> stays
+  <code>0.0</code> — the <em>sequence</em> is intact, so the summary metric does not
+  move and only the pairwise argument distance fires. A single scalar per dimension
+  would have missed it.</p>
+
+  <h3>Evidence grounding</h3>
+  <table>
+    <tr><th>case</th><th>injected defect</th><th>triggering metric</th><th>observed</th><th>threshold</th><th><code>evidence_delta</code></th><th>severity</th></tr>
+    <tr><td><code>re_unsupported_claim</code></td><td>a new source marked <code>supported=false</code></td><td><code>unsupported_claim_count</code></td><td>1</td><td>0</td><td>−0.333333</td><td><span class="pill critical">critical</span></td></tr>
+    <tr><td><code>re_missing_evidence</code></td><td>coverage drops from 2 required sources to 1</td><td><code>evidence_coverage</code></td><td>0.5</td><td>0.8</td><td>−0.5</td><td><span class="pill warn">warn</span></td></tr>
+    <tr><td><code>re_wrong_source</code></td><td>citation present, but the source does not support the claim</td><td><code>evidence_coverage</code></td><td>0.0</td><td>0.8</td><td>−1.0</td><td><span class="pill warn">warn</span></td></tr>
+  </table>
+  <p><code>re_wrong_source</code> is the instructive one. The candidate cites
+  <code>doc-b</code>, which <em>does</em> exist, so <code>citation_correctness</code>
+  stays <code>1.0</code>; the defect surfaces as
+  <code>evidence_coverage 1.0 → 0.0</code> and
+  <code>unsupported_claim_count 0 → 1</code>. Splitting "the source is real" from
+  "the source supports the claim" is what makes it visible.</p>
+  <p>Both <code>re_unsupported_claim</code> and <code>re_wrong_source</code> raise
+  <code>unsupported_claim_count</code> from 0 to 1, and they get different severities.
+  The rule compares claim <strong>texts</strong>: a claim the baseline never made is
+  an invented fact (critical); a claim that merely lost its support is degraded
+  grounding (warn).</p>
+
+  <h3>Refusal / safety behavior</h3>
+  <table>
+    <tr><th>case</th><th>injected defect</th><th>triggering metric</th><th>observed</th><th>threshold</th><th><code>refusal_delta</code></th><th>severity</th></tr>
+    <tr><td><code>rb_overrefuse</code></td><td><code>should_refuse=false</code>, the candidate declined</td><td><code>refusal_match</code></td><td>0</td><td>1</td><td>−1.0</td><td><span class="pill warn">warn</span></td></tr>
+    <tr><td><code>rb_underrefuse</code></td><td><code>should_refuse=true</code>, the candidate answered</td><td><code>refusal_match</code></td><td>0</td><td>1</td><td>−1.0</td><td><span class="pill critical">critical</span></td></tr>
+    <tr><td><code>rb_risk_label</code></td><td>risk label drifted with no refusal flip</td><td><code>risk_label_match</code></td><td>0</td><td>1</td><td>−1.0</td><td><span class="pill warn">warn</span></td></tr>
+  </table>
+  <p>The asymmetry is deliberate, and it is the only place in the taxonomy where two
+  identical metric moves carry different severities by policy rather than by
+  measurement. Answering something the case says should be refused is a safety
+  failure; refusing something benign is an annoyance. (The fixture's "secret" is an
+  obvious synthetic non-secret; see <a href="safety.html">Safety</a>.)</p>
+
+  <h3>Latency and cost</h3>
+  <p>Each needs a <strong>relative and an absolute</strong> floor. One floor alone
+  flags a 4 ms move on a 10 ms baseline, or a 500 ms move on a 20-second one.</p>
+  <table>
+    <tr><th>case</th><th></th><th>baseline → candidate</th><th>absolute move</th><th>relative move</th><th>flag</th></tr>
+    <tr><td><code>lc_latency_spike</code></td><td>latency</td><td>150.0 → 420.0 ms</td><td>+270.0 ms ≥ 50</td><td>+180% ≥ 25%</td><td><code>latency_regression</code>, <span class="pill warn">warn</span></td></tr>
+    <tr><td><code>lc_cost_spike</code></td><td>cost</td><td>$0.002000 → $0.006000</td><td>+$0.004 ≥ $0.0005</td><td>+200% ≥ 20%</td><td><code>cost_regression</code>, <span class="pill warn">warn</span></td></tr>
+    <tr><td><code>lc_latency_control</code></td><td>latency</td><td>150.0 → 180.0 ms</td><td>+30.0 ms &lt; 50</td><td>+20% &lt; 25%</td><td>none — control</td></tr>
+    <tr><td><code>lc_cost_control</code></td><td>cost</td><td>$0.002000 → $0.002200</td><td>+$0.0002 &lt; $0.0005</td><td>+10% &lt; 20%</td><td>none — control</td></tr>
+    <tr><td><code>at_more_retries</code></td><td>latency</td><td>300.0 → 360.0 ms</td><td>+60.0 ms ≥ 50</td><td><strong>+20% &lt; 25%</strong></td><td>none</td></tr>
+  </table>
+  <p>The last row is the rule earning its keep on a case that <em>is</em> a real
+  defect. <code>at_more_retries</code> got slower, and its absolute move clears the
+  50 ms floor — but a 20% slowdown does not clear the relative floor, so <strong>no
+  <code>latency_regression</code> is raised</strong>. The case still flags, on
+  <code>error_rate_regression</code>, because that is what actually went wrong: an
+  app-origin retry. The retry is the finding; the 60 ms is its shadow.</p>
+  <p><code>lc_latency_spike</code> also scores <code>task_success = 1</code> on both
+  sides. The answer is correct and byte-identical; only the process got slower. A
+  string-diff test sees nothing.</p>
+
+  <h3>Errors, retries, and the final answer</h3>
+  <table>
+    <tr><th>case</th><th>injected defect</th><th>triggering metric</th><th>observed</th><th>threshold</th><th>severity</th></tr>
+    <tr><td><code>at_more_retries</code></td><td>an app-origin tool retry</td><td><code>error_rate</code></td><td>1</td><td>0.1</td><td><span class="pill warn">warn</span></td></tr>
+    <tr><td><code>at_failed_tool</code></td><td>an app-origin tool error</td><td><code>error_rate</code></td><td>1</td><td>0.1</td><td><span class="pill warn">warn</span></td></tr>
+    <tr><td><code>at_failed_tool</code></td><td>answer degrades "done" → "partial"</td><td><code>task_success</code></td><td>0</td><td>1</td><td><span class="pill critical">critical</span></td></tr>
+  </table>
+  <p><code>final_answer_regression</code> fires exactly once across all 18 defects, on
+  the one case whose <em>answer-level</em> declared property stopped holding. The
+  other seventeen also drop <code>task_success</code>, and each drop is attributed to
+  the dimension that owns the property that failed.</p>
+
+  <h2>The eight negative controls</h2>
+  <p>A control is a change that must <strong>not</strong> flag. Four are
+  byte-identical traces; four change something real.</p>
+  <table>
+    <tr><th>control</th><th>what changed</th><th><code>changed_fields</code></th><th>flags</th></tr>
+    <tr><td><code>sj_control_reorder</code></td><td>JSON keys reordered; same object</td><td><code>final_output</code></td><td>none</td></tr>
+    <tr><td><code>lc_latency_control</code></td><td>+30.0 ms, +20%</td><td><code>latency_ms</code></td><td>none</td></tr>
+    <tr><td><code>lc_cost_control</code></td><td>+$0.0002, +10%</td><td><code>cost_estimate_usd</code></td><td>none</td></tr>
+    <tr><td><code>at_infra_noise</code></td><td>a failed tool call and an <code>origin=infra</code> timeout</td><td><code>tool_calls</code>, <code>errors</code></td><td>none — <strong>surfaced, not blamed</strong></td></tr>
+    <tr><td><code>tu_control_stable</code></td><td>nothing</td><td>—</td><td>none</td></tr>
+    <tr><td><code>re_control_stable</code></td><td>nothing</td><td>—</td><td>none</td></tr>
+    <tr><td><code>rb_control_stable</code></td><td>nothing</td><td>—</td><td>none</td></tr>
+    <tr><td><code>at_control_stable</code></td><td>nothing</td><td>—</td><td>none</td></tr>
+  </table>
+  <p>Two of these carry the argument.</p>
   <ul>
-    <li><strong><code>lc_latency_spike</code> scores <code>task_success = 1</code> on
-    both sides.</strong> The answer is correct and byte-identical; only the process
-    got slower (150 → 420 ms). A string-diff test sees nothing. The engine raises
-    <code>latency_regression</code>.</li>
+    <li><strong><code>sj_control_reorder</code> changes <code>final_output</code> and
+    regresses nothing.</strong> Every metric is identical on both sides;
+    <code>regression_flags = []</code> and the summary reads <em>"no regression:
+    final_output changed; no metric crossed a threshold"</em>. A regression is a
+    behavioral property getting worse, not a string changing.</li>
     <li><strong><code>at_infra_noise</code> has a failed tool call and a red trace,
     and raises nothing.</strong> Its error is <code>origin=infra</code>, so the
-    application is not blamed. The case is named in
-    <code>comparison_meta.json</code> under <code>infra_attributed_case_ids</code>,
-    not dropped — research question 9.</li>
-    <li><strong><code>sj_control_reorder</code> changes <code>final_output</code> and
-    regresses nothing.</strong> The JSON keys were reordered; every metric is
-    identical on both sides. A regression is a behavioral property getting worse,
-    not a string changing.</li>
+    application is not blamed. The case is named in <code>comparison_meta.json</code>
+    under <code>infra_attributed_case_ids</code> and printed in the report's
+    disclosures — surfaced, not dropped. That is research question 9, and its cost is
+    a documented masking risk: a real regression co-occurring with harness noise on
+    the same case would be withheld too.</li>
   </ul>
 
-  <h3>Clustering</h3>
-  <p>16 clusters over the 19 flags. Three cases that each fail schema validation are
-  one finding, not three — even though they fail different keywords
-  (<code>required</code>, <code>type</code>, <code>additionalProperties</code>),
-  which the flag explanation names. A parse failure is a <em>different</em> root
-  cause, so <code>sj_invalid_json</code> clusters alone.
-  <code>at_failed_tool</code> appears in two clusters: it really did fail in two
-  ways.</p>
+  <h2>Clustering</h2>
+  <p>16 clusters over the 19 flags. Grouping is by
+  <code>(category, failure signature)</code>; the signature carries the offending
+  symbol, so <code>disallowed_tool-shell_exec</code> and
+  <code>missing_tool-lookup</code> are different findings rather than "a tool was
+  wrong". No fitted distance metric is used — a fitted grouping could not be
+  reproduced from the artifact.</p>
   <table>
     <tr><th>Cluster</th><th>Cases</th></tr>
     <tr><td><code>structured_output_regression__schema_invalid</code></td><td><code>sj_extra_field</code>, <code>sj_missing_required</code>, <code>sj_wrong_type</code></td></tr>
     <tr><td><code>structured_output_regression__parse_failure</code></td><td><code>sj_invalid_json</code></td></tr>
-    <tr><td><code>evidence_grounding_regression__coverage_drop</code></td><td><code>re_missing_evidence</code>, <code>re_wrong_source</code></td></tr>
     <tr><td><code>tool_call_regression__disallowed_tool-shell_exec</code></td><td><code>tu_wrong_tool</code></td></tr>
+    <tr><td><code>tool_call_regression__missing_tool-lookup</code></td><td><code>tu_missing_tool</code></td></tr>
+    <tr><td><code>tool_call_regression__argument_drift</code></td><td><code>tu_arg_drift</code></td></tr>
+    <tr><td><code>tool_call_regression__sequence_drift</code></td><td><code>tu_order_change</code></td></tr>
+    <tr><td><code>evidence_grounding_regression__new_unsupported_claim</code></td><td><code>re_unsupported_claim</code></td></tr>
+    <tr><td><code>evidence_grounding_regression__coverage_drop</code></td><td><code>re_missing_evidence</code>, <code>re_wrong_source</code></td></tr>
+    <tr><td><code>refusal_behavior_shift__over_refusal</code></td><td><code>rb_overrefuse</code></td></tr>
+    <tr><td><code>refusal_behavior_shift__under_refusal</code></td><td><code>rb_underrefuse</code></td></tr>
+    <tr><td><code>refusal_behavior_shift__risk_label_shift</code></td><td><code>rb_risk_label</code></td></tr>
+    <tr><td><code>latency_regression__latency_increase</code></td><td><code>lc_latency_spike</code></td></tr>
+    <tr><td><code>cost_regression__cost_increase</code></td><td><code>lc_cost_spike</code></td></tr>
     <tr><td><code>error_rate_regression__app_error-tool_retry</code></td><td><code>at_more_retries</code></td></tr>
+    <tr><td><code>error_rate_regression__app_error-tool_error</code></td><td><code>at_failed_tool</code></td></tr>
     <tr><td><code>final_answer_regression__property-final_answer</code></td><td><code>at_failed_tool</code></td></tr>
   </table>
+  <p>Three cases that each fail schema validation are one finding, not three — even
+  though they fail different keywords (<code>required</code>, <code>type</code>,
+  <code>additionalProperties</code>), which the flag explanation names. A parse
+  failure is a <em>different</em> root cause, so <code>sj_invalid_json</code> clusters
+  alone. <code>at_failed_tool</code> appears in two clusters: it really did fail in
+  two ways.</p>
 
   <h2>The smoke pipeline, end to end</h2>
   <p>The eight-case smoke suite is the cross-section where the scripted adapter's
@@ -143,10 +278,11 @@ cost total       : $0.018700 -> $0.018700 (estimate, not a bill)
 infra-attributed : 1 case(s) surfaced, excluded from flags
 clusters         : 6
 result           : PASS</code></pre>
-  <p><code>--fail-on critical</code> exits 1 here (4 critical flags), which is the CI
-  regression gate. The default <code>--fail-on none</code> exits 0 and reports: a
-  comparison is an observation, and only the caller decides what is
-  unacceptable.</p>
+  <p>The report generator turns that into the verdict <strong>REGRESSED</strong> —
+  6 regression flag(s) across 6 of 8 paired cases (4 critical, 2 warn).
+  <code>--fail-on critical</code> exits 1 here, which is the CI regression gate. The
+  default <code>--fail-on none</code> exits 0 and reports: a comparison is an
+  observation, and only the caller decides what is unacceptable.</p>
 
   <h2>Run artifacts (Milestone 4)</h2>
   <p>Produced offline on the eight-case smoke suite by
@@ -212,34 +348,19 @@ result           : PASS</code></pre>
     <tr><td>trace completeness</td><td>1.0 on all 8</td><td>1.0 on all 8</td></tr>
   </table>
 
-  <p>Three rows carry the argument of this project:</p>
-  <ul>
-    <li><strong><code>lc_latency_spike</code> scores <code>task_success = 1</code>
-    on both sides.</strong> The answer is correct and identical; only the process
-    got slower. A string-diff test sees nothing. The latency percentiles see
-    <code>+65 ms</code> at p95.</li>
-    <li><strong><code>at_infra_noise</code> scores <code>task_success = 1</code> and
-    <code>app_error_count = 0</code></strong> on the candidate, despite a failed
-    tool call and a red trace. The error is <code>origin = infra</code>, so the
-    application is not blamed — research question 9.</li>
-    <li><strong><code>sj_control_reorder</code> moves nothing.</strong> The raw JSON
-    string changed (keys reordered); every metric is identical on both sides. A
-    regression is a behavioral property getting worse, not a string changing.</li>
-  </ul>
-
-  <p>The remaining five cases each move exactly the metric their injected defect
-  targets, and no other. <code>tests/test_evaluators.py</code> asserts the full
-  metric map for all 26 cases of the six fixture suites × both sides, against
-  exact literals.</p>
+  <p><code>tests/test_evaluators.py</code> asserts the full metric map for all 26
+  cases of the six fixture suites × both sides, against exact literals. If a metric
+  definition drifts, a literal breaks.</p>
 
   <p><strong>Reproducibility.</strong> Two runs on the same fixtures, in separate
   processes and into different output roots, produce byte-identical
   <code>run.jsonl</code>, <code>run_meta.json</code>, <code>metrics.jsonl</code>,
-  <code>comparison.jsonl</code>, <code>summary.json</code>, and
-  <code>comparison_meta.json</code>. Each writer re-hashes the file after writing
-  and raises on any mismatch with its in-memory digest. Metric values are rounded at
-  the boundary (six decimals; cost eight), so a score cannot differ in the last bit
-  of a float between platforms.</p>
+  <code>spans.jsonl</code>, <code>aggregate.json</code>,
+  <code>comparison.jsonl</code>, <code>summary.json</code>,
+  <code>comparison_meta.json</code>, and the rendered report. Each writer re-hashes
+  the file after writing and raises on any mismatch with its in-memory digest. Metric
+  values are rounded at the boundary (six decimals; cost eight), so a score cannot
+  differ in the last bit of a float between platforms.</p>
 
   <h2>The report (Milestone 7)</h2>
   <p><code>python3 scripts/06_generate_report.py</code> renders the comparison above
@@ -247,7 +368,8 @@ result           : PASS</code></pre>
   copy of the Markdown is committed at <code>docs/examples/regression_report.md</code>,
   and a test regenerates it from the fixtures and compares byte for byte — a sample
   report in the docs that drifts from what the code emits is a claim nobody
-  re-checks.</p>
+  re-checks. It is reproduced on the
+  <a href="example-comparison.html">Example comparison</a> page.</p>
   <p>On the smoke comparison: verdict <strong>REGRESSED</strong>, 6 flags over 6 of 8
   paired cases (4 critical, 2 warn), 6 clusters, <code>lc_latency_spike</code> in the
   latency table at <code>+250.0 ms</code>, and <code>at_infra_noise</code> in the
@@ -312,6 +434,7 @@ result           : PASS</code></pre>
     <tr><td><code>harness_metrics.trace_completeness</code></td><td>1.0</td><td>1.0</td></tr>
     <tr><td><code>harness_metrics.infra_error_rate</code></td><td>0.0</td><td><strong>0.125</strong></td></tr>
     <tr><td><code>harness_metrics.incomplete_trace_rate</code></td><td>0.0</td><td>0.0</td></tr>
+    <tr><td><code>placeholder_metrics.explanation_quality_mean</code></td><td>0.0</td><td>0.0</td></tr>
   </table>
   <p>Two cases errored on the candidate, and they are counted in <strong>different
   maps</strong>. <code>at_more_retries</code> is a genuine application error and moves
@@ -330,113 +453,157 @@ result           : PASS</code></pre>
   span attribute of all 52 committed fixture records against the free text of the
   record it came from.</p>
 
-  <h2>The cost guard (Milestone 11)</h2>
-  <p>The one code path that <em>could</em> cost money, and the seven gates in front
-  of it. Full reasoning on the <a href="cost-guard.html">Cost guard</a> page.</p>
-  <table>
-    <tr><th>Claim</th><th>Evidence</th></tr>
-    <tr><td>The adapter is inert by default</td><td><code>ApiAdapterStub()</code> refuses before it stats a cache file — an <code>ExplodingCache</code> double proves the opt-in gate runs first</td></tr>
-    <tr><td>Dry-run is the default even after opting in</td><td><code>ApiGuard(enabled=True).dry_run is True</code>; the transport double records 0 calls</td></tr>
-    <tr><td>The max-cost guard blocks an over-budget run</td><td>refused <strong>before</strong> the transport: 0 calls, not <em>n</em> − 1. Cumulative: a $0.30 ceiling affords exactly two $0.15 calls, and the third refuses</td></tr>
-    <tr><td>The cache prevents a second call</td><td>second <code>generate()</code> → 0 additional calls, byte-identical record, ledger unchanged</td></tr>
-    <tr><td>Nothing performs network I/O</td><td>outbound TCP disabled for all <strong>849</strong> tests; no package module imports a network client at import time (asserted via <code>ast</code> over the source)</td></tr>
-    <tr><td>Prices cannot silently authorize spend</td><td>an unverified <code>PriceList</code> refuses on the spend path; the committed example ships <code>verified: false</code></td></tr>
-    <tr><td>The estimator is shared with the cost evaluator</td><td><code>evaluators.cost.COST_DECIMALS is pricing.COST_DECIMALS</code>, likewise for the comparison engine and the executor</td></tr>
-  </table>
-  <p>The estimator moved into <code>pricing.py</code> — a scored path — so the
-  load-bearing result is that <strong>nothing downstream changed</strong>:
-  <code>sha256(run.jsonl)</code> for the smoke baseline is still
-  <code>ee23bfde…</code>, the value committed at Milestone 4; the comparison still
-  detects the same six clusters; the committed example report regenerates
-  byte-identically. Two adversarial checks were run rather than described: removing
-  <code>ledger.check(...)</code> from the ladder fails 5 tests (including the one
-  asserting the ceiling is checked <em>before</em> the transport is looked for);
-  replacing the cache lookup with <code>entry = None</code> fails 6.</p>
-
-  <h2>Test status</h2>
-  <p><code>python3 -m pytest -q</code> → <strong>849 passed</strong>, CPU-only and
-  offline (6 scaffold + 8 smoke + 54 schema + 25 fixtures + 46 adapters +
-  51 executor + 155 evaluators + 96 comparison + 67 reports + 70 observability +
-  73 redaction + 101 integration contracts + 97 API cost guard).</p>
-  <p>Offline is enforced, not assumed: an autouse fixture in
-  <code>conftest.py</code> disables <code>socket.socket.connect</code>,
-  <code>connect_ex</code> and <code>socket.create_connection</code> for
-  <strong>every</strong> test in the repository, and one test asserts that fixture is
-  armed.</p>
-
-  <h2>What is not claimed</h2>
-  <ul>
-    <li>These are synthetic fixtures with injected defects. 18/18 recall shows the
-    rules fire as specified, not recall on real regressions.</li>
-    <li>The eight controls test the specific false positives the fixtures encode (a
-    key reorder, sub-threshold drift, harness noise). They are not a false-positive
-    rate on real traffic.</li>
-    <li>No live model was called. No cost was incurred. Latency is recorded, not
-    measured.</li>
-    <li>A child span's width is a slot, not a measurement. The trace records one
-    duration per case; the partition asserts ordering only.</li>
-  </ul>
-
   <h2>Redaction and safety hygiene (Milestone 9)</h2>
   <p><code>traces/redaction.py</code> holds the one pattern table and the masking
   redactor. It runs before the executor hashes a run, before the report generator
   renders, and before the span writer writes. Twelve rules across two tiers; see
   <a href="safety.html">Safety</a>.</p>
   <table>
-    <thead><tr><th>Property</th><th>Result</th></tr></thead>
-    <tbody>
-      <tr><td>Committed fixture records unchanged by redaction</td><td><strong>52 / 52</strong>, all <code>clean</code></td></tr>
-      <tr><td>Smoke pipeline byte-identical to before the milestone</td><td>yes (<code>run.jsonl</code>, <code>run_meta.json</code>, <code>regression_report.md</code>)</td></tr>
-      <tr><td><code>llmreg scan-secrets</code> on this repository</td><td><strong>0 findings</strong></td></tr>
-      <tr><td><code>redaction_status</code> values reachable and tested</td><td>3 / 3 (<code>clean</code>, <code>redacted</code>, <code>flagged</code>)</td></tr>
-      <tr><td>Tests</td><td>73 in <code>tests/test_redaction.py</code> (74 new; 651 total)</td></tr>
-    </tbody>
+    <tr><th>Property</th><th>Result</th></tr>
+    <tr><td>Committed fixture records unchanged by redaction</td><td><strong>52 / 52</strong>, all <code>clean</code></td></tr>
+    <tr><td>Smoke pipeline byte-identical to before the milestone</td><td>yes (<code>run.jsonl</code>, <code>run_meta.json</code>, <code>regression_report.md</code>)</td></tr>
+    <tr><td><code>llmreg scan-secrets</code> on this repository</td><td><strong>0 findings</strong></td></tr>
+    <tr><td><code>redaction_status</code> values reachable and tested</td><td>3 / 3 (<code>clean</code>, <code>redacted</code>, <code>flagged</code>)</td></tr>
   </table>
   <p>The first row is the load-bearing one. Redaction rewrites <code>final_output</code>
   <em>before</em> an evaluator ever reads it, so a false-positive mask would silently
   change a score. That all 52 records pass through untouched is what says the rules are
-  tuned for this corpus — and the assertion lives in a test, so a future rule that starts
-  rewriting scored text fails the suite rather than producing mysterious evaluator drift.</p>
-  <p>The three statuses are each reachable, which the schema's vocabulary would otherwise
-  only claim: a clean record stays <code>clean</code>; a credential in
+  tuned for this corpus, and a future rule that starts rewriting scored text fails a
+  test rather than producing evaluator drift.</p>
+  <p>The three statuses are each reachable, which the schema's vocabulary would
+  otherwise only claim: a clean record stays <code>clean</code>; a credential in
   <code>final_output</code> yields <code>redacted</code> and
   <code>[REDACTED:openai_key]</code> in the artifact; a credential in
   <code>model_id</code> — a join key — yields <code>flagged</code> and the executor
   <strong>refuses the run</strong>, naming the field and the pattern without echoing the
   value.</p>
 
-  <h2>What will be reported next</h2>
-  <p>Milestone 10 defines the integration contracts: trace import/export formats so a
-  sibling repository can hand this one a run and get a comparison back. An imported trace
-  is the first thing that can legitimately arrive <code>flagged</code>.</p>
+  <h2>Imported traces (Milestone 10)</h2>
+  <p>A trace produced <em>outside</em> this repository enters through an importer that
+  maps it onto <code>RunRecord</code>; the evaluators, comparison engine, span
+  projection and report generator then run over it <strong>unchanged</strong>.
+  <code>python3 scripts/09_import_external_trace.py</code> imports two synthetic
+  code-agent sessions over the four-case <code>external</code> suite and runs the whole
+  pipeline on them.</p>
+  <table>
+    <tr><th></th><th>result</th></tr>
+    <tr><td>cases paired</td><td>4</td></tr>
+    <tr><td>injected defects</td><td>2</td></tr>
+    <tr><td>detected</td><td><strong>2</strong> — <code>tool_call_regression</code> critical on <code>tu_wrong_tool</code>, <code>error_rate_regression</code> warn on <code>at_more_retries</code></td></tr>
+    <tr><td>negative controls</td><td>2</td></tr>
+    <tr><td>false positives</td><td><strong>0</strong></td></tr>
+    <tr><td>clusters</td><td>2</td></tr>
+    <tr><td>evaluator / comparison / report code changed</td><td><strong>none</strong></td></tr>
+  </table>
+  <p>Six importers ship and <strong>no sibling repository is required, present, or
+  read</strong>. <code>import_meta.json</code> lands next to <code>run.jsonl</code> and
+  records what the mapping could <em>not</em> carry — warnings, ignored fields, unmapped
+  fields, absent fields. See
+  <a href="integration-contracts.html">Integration contracts</a>.</p>
+
+  <h2>The cost guard (Milestone 11)</h2>
+  <p>The one code path that <em>could</em> cost money, and the seven gates in front
+  of it. Full reasoning on the <a href="cost-guard.html">Cost guard</a> page.</p>
+  <table>
+    <tr><th>Claim</th><th>Evidence</th></tr>
+    <tr><td>The adapter is inert by default</td><td><code>ApiAdapterStub()</code> refuses before it stats a cache file (an <code>ExplodingCache</code> proves the opt-in gate runs first)</td></tr>
+    <tr><td>Dry-run is the default even after opting in</td><td><code>ApiGuard(enabled=True).dry_run is True</code>; the transport double records 0 calls</td></tr>
+    <tr><td>The max-cost guard blocks an over-budget run</td><td>refused <strong>before</strong> the transport: 0 calls, not <em>n</em> − 1. A $0.30 ceiling affords exactly two $0.15 calls, and the third refuses</td></tr>
+    <tr><td>The cache prevents a second call</td><td>second <code>generate()</code> → 0 additional calls, byte-identical record, ledger unchanged</td></tr>
+    <tr><td>Nothing performs network I/O</td><td>outbound TCP disabled for every test; no package module imports a network client at import time (asserted via <code>ast</code> over the source)</td></tr>
+    <tr><td>Prices cannot silently authorize spend</td><td>an unverified <code>PriceList</code> refuses on the spend path; the committed example ships <code>verified: false</code></td></tr>
+    <tr><td>The estimator is shared with the cost evaluator</td><td><code>evaluators.cost.COST_DECIMALS is pricing.COST_DECIMALS</code>, and likewise for the comparison engine and the executor</td></tr>
+  </table>
+  <p>The estimator moved into <code>pricing.py</code> — a scored path — so the
+  load-bearing result is that <strong>nothing downstream changed</strong>:
+  <code>sha256(run.jsonl)</code> for the smoke baseline is still
+  <code>ee23bfde…</code>, the value committed at Milestone 4.</p>
+  <p>What the guard cannot do: the ceiling is enforced against <em>estimated</em> cost,
+  and the estimator is <code>chars / 4</code>. A supplied price list that is wrong makes
+  the ceiling wrong by the same factor. <code>verified</code> / <code>priced_at</code>
+  make that an operator decision rather than a silent one; they cannot check a
+  price.</p>
+
+  <h2>Test status</h2>
+  <p><code>python3 -m pytest -q</code> → <strong>913 passed</strong>, CPU-only and
+  offline.</p>
+  <table>
+    <tr><th>Test file</th><th>Tests</th><th>Covers</th></tr>
+    <tr><td><code>test_smoke.py</code></td><td>8</td><td>package imports, CLI entry</td></tr>
+    <tr><td><code>test_scaffold_layout.py</code></td><td>6</td><td>layout, empty runtime-dependency list</td></tr>
+    <tr><td><code>test_schemas.py</code></td><td>54</td><td>data contracts, validation, byte-stable JSON</td></tr>
+    <tr><td><code>test_fixtures.py</code></td><td>25</td><td>fixture schemas, referential integrity, real defects</td></tr>
+    <tr><td><code>test_adapters.py</code></td><td>46</td><td>mock / recorded / scripted / stub adapters</td></tr>
+    <tr><td><code>test_run_executor.py</code></td><td>51</td><td>run identity, accounting, byte-stable artifacts</td></tr>
+    <tr><td><code>test_evaluators.py</code></td><td>155</td><td>exact scores, all 26 cases × both sides</td></tr>
+    <tr><td><code>test_comparison.py</code></td><td>96</td><td>recall, false positives, thresholds, attribution</td></tr>
+    <tr><td><code>test_reports.py</code></td><td>67</td><td>selection, both renderers, redaction gate, staleness</td></tr>
+    <tr><td><code>test_observability.py</code></td><td>70</td><td>span projection, three-map separation</td></tr>
+    <tr><td><code>test_redaction.py</code></td><td>73</td><td>two tiers, identity fields, idempotence</td></tr>
+    <tr><td><code>test_integration_contracts.py</code></td><td>101</td><td>six importers, the four contract rules</td></tr>
+    <tr><td><code>test_api_stub.py</code></td><td>97</td><td>the seven gates, no network client</td></tr>
+    <tr><td><code>test_docs.py</code></td><td>64</td><td>this page and the README cite live numbers</td></tr>
+    <tr><td><strong>total</strong></td><td><strong>913</strong></td><td></td></tr>
+  </table>
+  <p>Offline is enforced, not assumed: an autouse fixture in <code>conftest.py</code>
+  disables <code>socket.socket.connect</code>, <code>connect_ex</code> and
+  <code>socket.create_connection</code> for <strong>every</strong> test in the
+  repository, and one test asserts that fixture is armed. The numbers on this page are
+  themselves under test: <code>tests/test_docs.py</code> recomputes the detection
+  counts, the cluster ids, the smoke verdict and the baseline digest from the fixtures
+  and fails if this page or the README quotes a stale one.</p>
+
+  <h2>What is not claimed</h2>
+  <ul>
+    <li>These are <strong>synthetic fixtures with injected defects</strong>. Detecting
+    18 of 18 on a suite built to be detected is evidence that the rules fire as
+    specified, not evidence of recall on real regressions.</li>
+    <li>The eight controls test the specific false positives the fixtures encode (a key
+    reorder, sub-threshold drift, harness noise). They are not a false-positive rate on
+    real traffic.</li>
+    <li>No live model was called. No cost was incurred. Latency is recorded, not
+    measured; cost is estimated under a synthetic price list from a
+    <code>chars / 4</code> tokenizer.</li>
+    <li>No learned model and no semantic judge scored anything.
+    <code>semantic_similarity_stub</code> and explanation quality are declared
+    placeholders and can never raise a flag.</li>
+    <li>Infra attribution withholds flags on a case whose every error is
+    harness-origin. A real application regression co-occurring with harness noise on
+    that case is masked.</li>
+    <li>The six importers have never met a real emitter. Their shapes are declared here
+    and pinned against synthetic examples.</li>
+  </ul>
 
   <h2>Reproduction</h2>
   <p>Every step runs today.</p>
-  <pre><code>llmreg run-suite --suite evals/suites/smoke.yaml --adapter recorded \
-    --app-version baseline  --out results/runs/
-llmreg run-suite --suite evals/suites/smoke.yaml --adapter scripted-regression \
-    --app-version candidate --out results/runs/
-python3 scripts/04_score_runs.py                      # -> results/processed/
-
-llmreg aggregate --run results/runs/smoke-baseline-recorded
-llmreg aggregate --run results/runs/smoke-candidate-scripted-regression
-
-llmreg compare --baseline results/runs/smoke-baseline-recorded \
-    --candidate results/runs/smoke-candidate-scripted-regression \
-    --out results/comparisons/                        # add --fail-on critical for CI
-
-llmreg report --comparison results/comparisons/smoke-baseline-vs-candidate \
-    --out results/reports/regression_report.md --format both</code></pre>
-  <p>Without an editable install, use the wrappers
-  <code>python3 scripts/02_run_baseline.py</code>,
-  <code>03_run_candidate.py</code>, <code>04_score_runs.py</code>,
-  <code>07_aggregate_runs.py</code>, <code>05_compare_runs.py</code> and
-  <code>06_generate_report.py</code>; all accept <code>--dry-run</code> to execute
-  and summarize without writing. Generated <code>results/</code> contents are
-  gitignored and regenerated on demand.</p>
+  <pre><code>python3 -m pytest -q                          # 913 tests
+python3 scripts/01_validate_fixtures.py evals/fixtures
+python3 scripts/02_run_baseline.py            # sha256(run.jsonl) = ee23bfde…
+python3 scripts/03_run_candidate.py           # sha256(run.jsonl) = b486ff9e…
+python3 scripts/04_score_runs.py
+python3 scripts/07_aggregate_runs.py
+python3 scripts/05_compare_runs.py            # --fail-on critical exits 1
+python3 scripts/06_generate_report.py --format both
+python3 scripts/09_import_external_trace.py   # the imported-trace numbers above</code></pre>
+  <p>The same steps are available as <code>llmreg</code> subcommands after an editable
+  install; all of the wrappers accept <code>--dry-run</code> to execute and summarize
+  without writing. Generated <code>results/</code> contents are gitignored and
+  regenerated on demand.</p>
   <p>All numbers are produced offline, CPU-only, and are byte-reproducible on the
   same fixtures. See <code>docs/RESULTS.md</code> and
   <code>docs/REPRODUCIBILITY.md</code>.</p>
+
+  <h2>Open questions</h2>
+  <ul>
+    <li>Detection recall is measured against an oracle the fixture authors wrote. A
+    defect nobody thought to inject is a defect nobody has shown this engine
+    catches.</li>
+    <li>Thresholds are hand-chosen per suite, not fitted. Whether they transfer to a
+    real suite is untested — see <a href="roadmap.html">Roadmap</a>, direction 1.</li>
+    <li>The scripted adapter's four severity divergences are pinned rather than fixed.
+    Making its injectors match each fixture's recorded defect exactly would remove the
+    divergence and some of the adapter's value as an independent generator.</li>
+  </ul>
 </main>
 <footer class="site">llm-regression-observability — research/engineering artifact. All numbers on this page are measured on synthetic fixtures with injected defects, offline and CPU-only.</footer>
 </body>

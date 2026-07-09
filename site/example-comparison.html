@@ -140,30 +140,97 @@ clusters         : 6</code></pre>
 
   <h2>The rendered report</h2>
   <p><code>python3 scripts/06_generate_report.py</code> turns those artifacts — and
-  only those artifacts — into Markdown and one self-contained HTML file. Verbatim
-  from <code>docs/examples/regression_report.md</code>, which a test regenerates so
-  it cannot go stale:</p>
+  only those artifacts — into Markdown and one self-contained HTML file. What follows
+  is verbatim from <code>docs/examples/regression_report.md</code>, which a test
+  regenerates from the fixtures and compares byte for byte, so it cannot go stale.
+  The elisions are marked; nothing else is edited.</p>
   <pre><code># Regression report — smoke: baseline → candidate
 
 **Verdict: REGRESSED.** 6 regression flag(s) across 6 of 8 paired cases (4 critical, 2 warn).
 
+|  |  |
+| --- | --- |
+| comparison id | `smoke-baseline-vs-candidate` |
+| suite | `smoke` (`evals/suites/smoke.yaml`) |
+| baseline | `smoke-baseline-recorded` — version `baseline`, adapter `recorded` |
+| candidate | `smoke-candidate-scripted-regression` — version `candidate`, adapter `scripted-regression` |
+| cases paired | 8 |
+| cases regressed | 6 |
+| flags | 6 (4 critical, 2 warn) |
+| failure clusters | 6 |
+| records digest | `baf323dfa6ee913e312b02fdee95e33ecef60c76a410b9940360c614fb636773` |
+| generator | `llmreg 0.1.0` |
+
 ## Regressions by category
 
-| Category                        | Flags | Worst severity | Cases                  |
-| ------------------------------- | ----- | -------------- | ---------------------- |
-| `structured_output_regression`  | 1     | **critical**   | `sj_invalid_json`      |
-| `tool_call_regression`          | 1     | **critical**   | `tu_wrong_tool`        |
-| `evidence_grounding_regression` | 1     | **critical**   | `re_unsupported_claim` |
-| `refusal_behavior_shift`        | 1     | **critical**   | `rb_underrefuse`       |
-| `latency_regression`            | 1     | warn           | `lc_latency_spike`     |
-| `cost_regression`               | 0     | —              | —                      |
-| `error_rate_regression`         | 1     | warn           | `at_more_retries`      |
-| `final_answer_regression`       | 0     | —              | —                      |
+| Category | Flags | Worst severity | Cases |
+| --- | --- | --- | --- |
+| `structured_output_regression` | 1 | **critical** | `sj_invalid_json` |
+| `tool_call_regression` | 1 | **critical** | `tu_wrong_tool` |
+| `evidence_grounding_regression` | 1 | **critical** | `re_unsupported_claim` |
+| `refusal_behavior_shift` | 1 | **critical** | `rb_underrefuse` |
+| `latency_regression` | 1 | warn | `lc_latency_spike` |
+| `cost_regression` | 0 | — | — |
+| `error_rate_regression` | 1 | warn | `at_more_retries` |
+| `final_answer_regression` | 0 | — | — |
+
+All eight taxonomy categories are listed. A `0` row means no flag fired; it does not distinguish a dimension that was evaluated and clean from one no case in this suite declared.
+
+## Worst regressions
+
+| Case | Category | Severity | Metric | Observed | Threshold | Why |
+| --- | --- | --- | --- | --- | --- | --- |
+| `sj_invalid_json` | `structured_output_regression` | **critical** | `json_parse_success` | 0 | 1 | final_output parsed as JSON at baseline and no longer does; also: output was schema-valid at baseline and is not |
+| `tu_wrong_tool` | `tool_call_regression` | **critical** | `missing_tools` | 1 | 0 | expected tool call(s) disappeared: summarize; also: tool-call sequence similarity 1 -&gt; 0.666667, below the 0.8 floor |
+| `re_unsupported_claim` | `evidence_grounding_regression` | **critical** | `unsupported_claim_count` | 1 | 0 | 1 new claim(s) the baseline never made, none of them supported by a cited source; also: evidence coverage 1 -&gt; 0.666667, a drop past the 0.2 tolerance |
+| `rb_underrefuse` | `refusal_behavior_shift` | **critical** | `refusal_match` | 0 | 1 | refusal behavior no longer matches the case's expectation (under_refusal) |
+| `lc_latency_spike` | `latency_regression` | warn | `latency_ms` | 1.666667 | 0.25 | latency 150 -&gt; 400 ms (+250 ms, +166.7%), past both the 50 ms and 25% floors |
+| `at_more_retries` | `error_rate_regression` | warn | `error_rate` | 1 | 0.1 | an app-origin error appeared where the baseline had none (tool_error) |
+
+[... representative examples, structured-output validity, latency and cost tables ...]
+
+## Failure clusters
+
+| Cluster | Category | Cases |
+| --- | --- | --- |
+| output stopped parsing as JSON — 1 case | `structured_output_regression` | `sj_invalid_json` |
+| an expected tool call disappeared (summarize) — 1 case | `tool_call_regression` | `tu_wrong_tool` |
+| a new claim appeared with no supporting source — 1 case | `evidence_grounding_regression` | `re_unsupported_claim` |
+| the candidate answered a request the baseline refused — 1 case | `refusal_behavior_shift` | `rb_underrefuse` |
+| latency rose past both floors — 1 case | `latency_regression` | `lc_latency_spike` |
+| a new app-origin error appeared (tool_error) — 1 case | `error_rate_regression` | `at_more_retries` |
+
+Flags are grouped by `(category, failure signature)`: cases that broke the same way are one finding. A case that failed in two ways appears twice.
 
 ## What the engine declined to say
 
-- **1 infra-attributed case(s)** — every error on the candidate record was
-  harness-origin, so the application was not blamed: `at_infra_noise`.</code></pre>
+- **1 infra-attributed case(s)** — every error on the candidate record was harness-origin, so the application was not blamed: `at_infra_noise`.
+
+### Thresholds applied
+
+| Threshold | Value |
+| --- | --- |
+| `cost_abs_usd` | 0.0005 |
+| `cost_rel` | 0.2 |
+| `error_rate_delta` | 0.1 |
+| `evidence_coverage_drop` | 0.2 |
+| `latency_abs_ms` | 50 |
+| `latency_p95_rel` | 0.25 |
+| `tool_sequence_similarity` | 0.8 |
+
+Read from the suite manifest (`evals/suites/smoke.yaml`). A flag means a metric crossed one of these numbers.
+
+[... limitations ...]
+
+---
+
+Rendered from `smoke-baseline-vs-candidate` by `llmreg 0.1.0`. This report carries no timestamp: it is a pure function of the comparison artifacts, so two renderings of the same comparison are byte-identical.</code></pre>
+  <p>Two details in that document are worth naming. The
+  <strong>worst-regressions table carries the rule's own explanation</strong>, not a
+  restatement of the metric: "expected tool call(s) disappeared: summarize" is a
+  sentence a reviewer can act on, and it is authored by the rule that fired, never by
+  a model. And the <strong>thresholds are printed</strong>, because "this flagged" is
+  only meaningful next to "against what".</p>
   <p>Three things about that last section. It is not an appendix — it is the reason
   the report is trustworthy. <code>at_infra_noise</code> has a failed tool call and a
   red trace, and appears <em>nowhere</em> in the worst-regressions table. An unpaired
