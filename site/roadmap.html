@@ -34,12 +34,15 @@
   yet; it provides the contracts, deterministic ground-truth fixtures, and the
   detection/report pipeline that make the studies runnable.</p>
 
-  <h2>Build path (near term)</h2>
-  <p>Milestones 0–12 (see <a href="milestones.html">Milestones</a>) have delivered
-  the runnable framework: schemas, fixtures, adapters, executor, evaluators,
+  <h2>Build path (complete)</h2>
+  <p>All fourteen milestones (see <a href="milestones.html">Milestones</a>) have
+  delivered the runnable framework: schemas, fixtures, adapters, executor, evaluators,
   comparison, reports, observability, redaction, integration contracts, an optional
-  guarded API adapter, and documentation whose numbers are under test. Milestone 13
-  is a final gate run and hygiene check — no new capability.</p>
+  guarded API adapter, documentation whose numbers are under test, and — in Milestone
+  13 — the ten quality gates of <code>docs/PLAN.md</code> §11 as a single command
+  (<code>python3 scripts/10_run_all_gates.py</code>) whose claim strings are parsed
+  back out of the plan by a test. The build is finished; everything below is
+  research and product direction, not scheduled work.</p>
 
   <h2>Product path (shortest useful step)</h2>
   <p>The CI gate already exists. <code>llmreg compare --fail-on critical</code> exits

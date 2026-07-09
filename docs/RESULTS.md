@@ -1,7 +1,7 @@
 # Results
 
 > **Status: the detector works, on synthetic ground truth, and reports what it
-> found.** Milestones 0–12 are implemented, so the run artifacts, the per-case
+> found.** All fourteen milestones (0–13) are implemented, so the run artifacts, the per-case
 > scores, the **regression flags**, the **rendered report**, the **spans and suite
 > metrics**, the **redaction** in front of all of them, the **import contracts**
 > traces arrive through, and the **cost guard** in front of the one path that
@@ -546,7 +546,7 @@ guards are the deliverable; the network call is not. Full reasoning in
 | Dry-run is the default even after opting in | `ApiGuard(enabled=True).dry_run is True`; the transport double records 0 calls |
 | The max-cost guard blocks an over-budget run | refused **before** the transport: 0 calls, not *n* − 1. Cumulative across a suite: a $0.30 ceiling affords exactly two $0.15 calls, and the third refuses |
 | The cache prevents a second call | second `generate()` → 0 additional calls, byte-identical record, ledger unchanged |
-| Nothing performs network I/O | outbound TCP disabled for all **913** tests; no package module imports a network client at import time (asserted via `ast` over the source) |
+| Nothing performs network I/O | outbound TCP disabled for all **956** tests; no package module imports a network client at import time (asserted via `ast` over the source) |
 | Prices cannot silently authorize spend | an unverified `PriceList` refuses on the spend path; the committed example ships `verified: false` |
 | The estimator is shared with the cost evaluator | `evaluators.cost.COST_DECIMALS is pricing.COST_DECIMALS`, and likewise for the comparison engine and the executor |
 
@@ -568,7 +568,7 @@ rather than a silent one; they cannot check a price.
 
 ## Test status
 
-`python3 -m pytest -q` → **913 passed**, CPU-only and offline.
+`python3 -m pytest -q` → **956 passed**, CPU-only and offline.
 
 | Test file | Tests | Covers |
 | --- | --- | --- |
@@ -586,7 +586,8 @@ rather than a silent one; they cannot check a price.
 | `test_integration_contracts.py` | 101 | six importers, the four contract rules |
 | `test_api_stub.py` | 97 | the seven gates, no network client |
 | `test_docs.py` | 64 | this document and the README cite live numbers |
-| **total** | **913** | |
+| `test_gates.py` | 43 | the gate runner is the plan's §11, and every gate can fail |
+| **total** | **956** | |
 
 Offline is enforced, not assumed: an autouse fixture in `conftest.py` disables
 `socket.socket.connect`, `connect_ex` and `socket.create_connection` for **every**
@@ -628,7 +629,7 @@ The exact commands that generate these numbers are in
 [`REPRODUCIBILITY.md`](REPRODUCIBILITY.md):
 
 ```bash
-python3 -m pytest -q                          # 913 tests
+python3 -m pytest -q                          # 956 tests
 python3 scripts/01_validate_fixtures.py evals/fixtures
 python3 scripts/02_run_baseline.py            # sha256(run.jsonl) = ee23bfde…
 python3 scripts/03_run_candidate.py           # sha256(run.jsonl) = b486ff9e…
@@ -641,3 +642,51 @@ python3 scripts/09_import_external_trace.py   # the imported-trace numbers above
 
 All numbers are produced offline, CPU-only, and are byte-reproducible on the same
 fixtures.
+
+Or all of it at once, as the ten conditions [`PLAN.md`](PLAN.md) §11 makes the
+repository answer for:
+
+```bash
+python3 scripts/10_run_all_gates.py           # 10/10 required gates, exit 0
+```
+
+## Quality gates
+
+Milestone 13 turned §11 of the plan from a checklist a human reads into a command
+that exits non-zero. Each gate names the claim it settles, and the claim strings
+are the plan's own bullets — `tests/test_gates.py` parses §11 and compares them, so
+a gate cannot drift away from the promise it keeps.
+
+| Gate | What it runs | Result |
+| --- | --- | --- |
+| `tests` | `python3 -m pytest -q` | 956 passed |
+| `fixtures` | `scripts/01_validate_fixtures.py` | 26 cases, 18 defects, 8 controls |
+| `smoke_offline` | both run scripts, in a child with no socket | both completed |
+| `runs_generated` | digests the two `run.jsonl` files | 8 records each, digests match |
+| `comparison` | `scripts/05_compare_runs.py` | 6/6 detected, 0 false positives |
+| `report` | `scripts/06_generate_report.py --format both` | byte-identical to the committed example |
+| `redaction` | scans the tree, then a planted synthetic key | repo clean, scanner live |
+| `docs` | four topic docs, eleven website pages | present, linked from the README |
+| `no_paid_api` | imports the package in a fresh interpreter | no network client, adapter inert |
+| `clean_tree` | `git status --porcelain`, `git branch -r` | clean, no remote-tracking branch |
+| `lint` *(optional)* | `python3 -m ruff check .` | no finding |
+
+Three of those gates are worth stating precisely, because a weaker version of each
+would pass just as green:
+
+- **`smoke_offline` enforces offline, it does not assert it.** The two run scripts
+  execute in a child interpreter whose `socket.connect`, `connect_ex` and
+  `create_connection` raise. On a host with connectivity, a run that reached for
+  the network would still fail this gate.
+- **`redaction` proves its scanner is live.** An inert scanner reports zero
+  findings on every tree, including one with a key in it. The gate plants a
+  synthetic credential in a scratch file and requires the scanner to find *that*
+  before it accepts an empty finding list for the repository.
+- **`report` compares bytes.** The rendered Markdown must equal
+  [`examples/regression_report.md`](examples/regression_report.md) exactly — which
+  is only possible because the report carries no timestamp.
+
+The gate run writes nothing into the repository: the pipeline gates run into a
+scratch directory outside the tree, which is why `clean_tree` can be believed. And
+`--json` output carries no clock and no scratch path, so two runs on one commit are
+byte-identical and a gate report diffs like any other artifact here.

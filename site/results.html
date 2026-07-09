@@ -32,7 +32,7 @@
   byte-reproducible run. Nothing is illustrative and nothing is rounded by hand.
   The commands that regenerate all of it are at the bottom.</p>
 
-  <p><span class="status done">status: Milestone 12 complete — 18 of 18 injected defects detected with their annotated category and severity; 0 false positives on the 8 negative controls; 19 flags, 16 clusters; the comparison renders as a deterministic, redaction-gated report; each run projects into a span tree and reduces to suite metrics that keep harness signals separate; traces from outside this repository enter through versioned import contracts; the optional paid-API adapter sits behind seven gates and no network client; 913 tests passing, all offline</span></p>
+  <p><span class="status done">status: all fourteen milestones (0–13) complete — 18 of 18 injected defects detected with their annotated category and severity; 0 false positives on the 8 negative controls; 19 flags, 16 clusters; the comparison renders as a deterministic, redaction-gated report; each run projects into a span tree and reduces to suite metrics that keep harness signals separate; traces from outside this repository enter through versioned import contracts; the optional paid-API adapter sits behind seven gates and no network client; the ten quality gates of <code>docs/PLAN.md</code> §11 run as one command and exit 0; 956 tests passing, all offline</span></p>
 
   <div class="callout">Everything below is measured on <strong>synthetic fixtures
   with injected defects</strong>. Detecting 18 of 18 defects on a suite built to be
@@ -525,7 +525,7 @@ result           : PASS</code></pre>
   price.</p>
 
   <h2>Test status</h2>
-  <p><code>python3 -m pytest -q</code> → <strong>913 passed</strong>, CPU-only and
+  <p><code>python3 -m pytest -q</code> → <strong>956 passed</strong>, CPU-only and
   offline.</p>
   <table>
     <tr><th>Test file</th><th>Tests</th><th>Covers</th></tr>
@@ -543,7 +543,8 @@ result           : PASS</code></pre>
     <tr><td><code>test_integration_contracts.py</code></td><td>101</td><td>six importers, the four contract rules</td></tr>
     <tr><td><code>test_api_stub.py</code></td><td>97</td><td>the seven gates, no network client</td></tr>
     <tr><td><code>test_docs.py</code></td><td>64</td><td>this page and the README cite live numbers</td></tr>
-    <tr><td><strong>total</strong></td><td><strong>913</strong></td><td></td></tr>
+    <tr><td><code>test_gates.py</code></td><td>43</td><td>the gate runner is the plan's §11, and every gate can fail</td></tr>
+    <tr><td><strong>total</strong></td><td><strong>956</strong></td><td></td></tr>
   </table>
   <p>Offline is enforced, not assumed: an autouse fixture in <code>conftest.py</code>
   disables <code>socket.socket.connect</code>, <code>connect_ex</code> and
@@ -574,9 +575,46 @@ result           : PASS</code></pre>
     and pinned against synthetic examples.</li>
   </ul>
 
+  <h2>Quality gates</h2>
+  <p>Section 11 of <code>docs/PLAN.md</code> lists ten conditions this repository must
+  meet to be called complete. Milestone 13 turned that checklist into a command that
+  exits non-zero. Each gate names the claim it settles, and the claim strings are the
+  plan's own bullets: <code>tests/test_gates.py</code> parses §11 and compares them, so
+  a gate cannot drift away from the promise it keeps.</p>
+  <table>
+    <tr><th>Gate</th><th>What it runs</th><th>Result</th></tr>
+    <tr><td><code>tests</code></td><td><code>python3 -m pytest -q</code></td><td>956 passed</td></tr>
+    <tr><td><code>fixtures</code></td><td><code>scripts/01_validate_fixtures.py</code></td><td>26 cases, 18 defects, 8 controls</td></tr>
+    <tr><td><code>smoke_offline</code></td><td>both run scripts, in a child with no socket</td><td>both completed</td></tr>
+    <tr><td><code>runs_generated</code></td><td>digests the two <code>run.jsonl</code> files</td><td>8 records each, digests match</td></tr>
+    <tr><td><code>comparison</code></td><td><code>scripts/05_compare_runs.py</code></td><td>6/6 detected, 0 false positives</td></tr>
+    <tr><td><code>report</code></td><td><code>scripts/06_generate_report.py --format both</code></td><td>byte-identical to the committed example</td></tr>
+    <tr><td><code>redaction</code></td><td>scans the tree, then a planted synthetic key</td><td>repo clean, scanner live</td></tr>
+    <tr><td><code>docs</code></td><td>four topic docs, eleven website pages</td><td>present, linked from the README</td></tr>
+    <tr><td><code>no_paid_api</code></td><td>imports the package in a fresh interpreter</td><td>no network client, adapter inert</td></tr>
+    <tr><td><code>clean_tree</code></td><td><code>git status --porcelain</code>, <code>git branch -r</code></td><td>clean, no remote-tracking branch</td></tr>
+    <tr><td><code>lint</code> <em>(optional)</em></td><td><code>python3 -m ruff check .</code></td><td>no finding</td></tr>
+  </table>
+  <p>Three of those would pass just as green in a weaker form, so they are built to
+  fail when they should. <strong><code>smoke_offline</code> enforces offline rather than
+  asserting it</strong>: the run scripts execute in a child interpreter whose
+  <code>socket.connect</code>, <code>connect_ex</code> and <code>create_connection</code>
+  raise, so a run that reached for the network fails even on a connected host.
+  <strong><code>redaction</code> proves its scanner is live</strong>: an inert scanner
+  reports zero findings on every tree, including one with a key in it, so the gate
+  plants a synthetic credential in a scratch file and requires the scanner to find
+  <em>that</em> before it accepts an empty finding list for the repository.
+  <strong><code>report</code> compares bytes</strong> against the committed example —
+  possible only because the report carries no timestamp.</p>
+  <p>The gate run writes nothing into the repository: the pipeline gates run into a
+  scratch directory outside the tree, which is why <code>clean_tree</code> can be
+  believed. <code>--json</code> output carries no clock and no scratch path, so two runs
+  on one commit are byte-identical and a gate report diffs like any other artifact
+  here.</p>
+
   <h2>Reproduction</h2>
   <p>Every step runs today.</p>
-  <pre><code>python3 -m pytest -q                          # 913 tests
+  <pre><code>python3 -m pytest -q                          # 956 tests
 python3 scripts/01_validate_fixtures.py evals/fixtures
 python3 scripts/02_run_baseline.py            # sha256(run.jsonl) = ee23bfde…
 python3 scripts/03_run_candidate.py           # sha256(run.jsonl) = b486ff9e…
@@ -584,7 +622,9 @@ python3 scripts/04_score_runs.py
 python3 scripts/07_aggregate_runs.py
 python3 scripts/05_compare_runs.py            # --fail-on critical exits 1
 python3 scripts/06_generate_report.py --format both
-python3 scripts/09_import_external_trace.py   # the imported-trace numbers above</code></pre>
+python3 scripts/09_import_external_trace.py   # the imported-trace numbers above
+
+python3 scripts/10_run_all_gates.py           # or: all ten gates at once, exit 0</code></pre>
   <p>The same steps are available as <code>llmreg</code> subcommands after an editable
   install; all of the wrappers accept <code>--dry-run</code> to execute and summarize
   without writing. Generated <code>results/</code> contents are gitignored and

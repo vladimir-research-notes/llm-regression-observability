@@ -105,7 +105,7 @@ repository can spend money. The package contains no network client: `anthropic` 
 not a dependency, nothing imports it, and `tests/test_api_stub.py` asserts that by
 parsing the package's own source with `ast` (a runtime check would only see the
 imports that happened to run). Offline is enforced rather than assumed — an autouse
-fixture in `conftest.py` disables outbound TCP for all 913 tests.
+fixture in `conftest.py` disables outbound TCP for all 956 tests.
 
 The guarded adapter (`adapters/api_stub.py`, Milestone 11) passes every call
 through seven gates in a fixed order, each refusing for its own reason:

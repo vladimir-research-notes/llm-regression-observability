@@ -144,7 +144,7 @@ llmreg scan-secrets [PATH]                # the same scan, from the CLI</code></
   <code>tests/test_api_stub.py</code> asserts that by parsing the package's own
   source with <code>ast</code> — a runtime check would only see the imports that
   happened to run. Offline is enforced rather than assumed: an autouse fixture in
-  <code>conftest.py</code> disables outbound TCP for all 913 tests.</p>
+  <code>conftest.py</code> disables outbound TCP for all 956 tests.</p>
   <p>The guarded adapter passes every call through seven gates in a fixed order —
   <strong>explicit opt-in</strong> (first, so a disabled adapter does not even
   <code>stat</code> a file), <strong>response cache</strong> (a hit spends nothing

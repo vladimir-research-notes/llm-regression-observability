@@ -284,6 +284,12 @@ The repo is **not complete** unless all hold:
 - No paid API is required anywhere in the default path.
 - Working tree is clean; nothing is pushed.
 
+All ten run as one command — `python3 scripts/10_run_all_gates.py` — in dependency
+order, exiting 1 if any fails. The coupling is enforced in both directions:
+`tests/test_gates.py` parses the bullets above and asserts the runner's required
+gates reproduce them verbatim, in order. Editing this list without editing the
+gates fails the suite.
+
 ## 12. Commit discipline
 
 - One coherent commit per milestone; no giant formatting-only commits.

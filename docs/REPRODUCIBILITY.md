@@ -114,6 +114,34 @@ pipeline position: each sits one slot later than its milestone doc names it, fro
 carried into `06_generate_report.py`), and `07_aggregate_runs.py` (Milestone 8)
 ran out of slots entirely although aggregation happens before comparison.
 
+## All of it at once
+
+```bash
+python3 scripts/10_run_all_gates.py            # the ten gates of PLAN.md §11
+python3 scripts/10_run_all_gates.py --json     # deterministic, diffable
+python3 scripts/10_run_all_gates.py --only report --keep-workdir
+```
+
+Exits 1 if any required gate fails; `lint` is the one optional gate, because
+`ruff` is a dev extra. `--only` pulls in a gate's prerequisites, so `--only report`
+runs the whole pipeline that produces one. Selecting `tests` from inside `pytest`
+raises rather than forking the suite into itself.
+
+The gate run writes **nothing into the repository**: the pipeline gates run the
+commands above into a scratch directory outside the tree (`--workdir` must be
+outside it, and the script only ever removes a directory it created). That is what
+lets the `clean_tree` gate inspect the repository rather than the leavings of the
+gate before it. `--json` carries no clock and no scratch path, so two runs on one
+commit are byte-identical.
+
+Two claims that gate run makes good on, which a weaker check would fake:
+`smoke_offline` executes the run scripts in a child interpreter whose
+`socket.connect`, `connect_ex` and `create_connection` raise — so a run that
+reached for the network fails even on a connected host; and `redaction` plants a
+synthetic credential in a scratch file and requires the scanner to find *that*
+before it accepts an empty finding list for the repository, because an inert
+scanner reports zero findings on every tree.
+
 Each run writes two artifacts, scoring writes a third, aggregation writes two more,
 the comparison writes three, and the report writes one per format:
 

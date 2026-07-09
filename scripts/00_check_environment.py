@@ -87,10 +87,11 @@ def collect() -> dict:
 
     # Third-party (optional) — informational.
     for pkg in ["pydantic", "pandas"]:
+        present = _import_ok(pkg)
+        detail = "installed" if present else "absent (optional; core needs neither)"
         checks.append({
             "name": f"optional_pkg:{pkg}", "level": "info",
-            "ok": _import_ok(pkg),
-            "detail": "installed" if _import_ok(pkg) else "absent (optional; core needs neither)",
+            "ok": present, "detail": detail,
         })
 
     return {"ok": ok, "network_required": False, "checks": checks}

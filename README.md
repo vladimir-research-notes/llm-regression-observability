@@ -12,9 +12,10 @@ observability metrics come out. The system answers a single, hard question:
 > **Status:** the pipeline runs end to end, offline and CPU-only. On six
 > synthetic fixture suites the comparison engine detects **18 of 18 injected
 > defects** with the category and severity their ground truth annotates, and
-> raises **0 false positives** on the 8 negative controls. **913 tests**, none of
-> which touch the network. Milestones 0–12 of 13 are complete; see
-> [`docs/PLAN.md`](docs/PLAN.md) and the [website](site/index.html).
+> raises **0 false positives** on the 8 negative controls. **956 tests**, none of
+> which touch the network. All fourteen milestones (0–13) are complete, and the ten
+> quality gates in [`docs/PLAN.md`](docs/PLAN.md) §11 run as one command
+> (`python3 scripts/10_run_all_gates.py`); see the [website](site/index.html).
 
 This is a reliability/evaluation framework. It is **not** a medical, legal, or
 security authority, and it makes **no** claim of universal model evaluation. All
@@ -198,7 +199,8 @@ per-dimension tables and the cluster listing are in
 
 ```bash
 python3 scripts/00_check_environment.py     # preflight (Python, tooling, disk)
-python3 -m pytest -q                         # 913 tests, CPU-only and offline
+python3 -m pytest -q                         # 956 tests, CPU-only and offline
+python3 scripts/10_run_all_gates.py          # all ten quality gates; exit 1 on any
 ./scripts/serve_site.sh                      # docs website on http://localhost:9001
 ```
 
@@ -318,9 +320,9 @@ data/external/                     synthetic examples of each importable trace s
 results/                           generated runs / comparisons / reports (gitignored)
 docs/                              methodology, trace format, metrics, safety, plan
 docs/milestones/                   per-milestone specifications
-scripts/                           env check, pipeline wrappers, site server, runner
+scripts/                           env check, pipeline wrappers, gates, site server
 site/                              multi-page static documentation website
-tests/                             913 CPU-only offline tests
+tests/                             956 CPU-only offline tests
 ```
 
 ## Documentation
