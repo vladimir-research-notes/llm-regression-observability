@@ -18,6 +18,7 @@
     <a href="regression-categories.html">Regression categories</a>
     <a href="example-comparison.html">Example comparison</a>
     <a href="integration-contracts.html">Integration contracts</a>
+    <a href="cost-guard.html">Cost guard</a>
     <a href="results.html">Results</a>
     <a href="milestones.html">Milestones</a>
     <a href="limitations.html">Limitations</a>
@@ -142,7 +143,7 @@ source tree   scan, certain tier only                                   (llmreg 
 
   <h2>Package layout</h2>
   <pre><code>src/llm_regression_observability/
-  __init__.py     schemas.py      cli.py      executor.py
+  __init__.py     schemas.py      cli.py      executor.py     pricing.py
   datasets/    loader.py versioning.py fixtures.py
   traces/      model_trace.py tool_trace.py redaction.py storage.py
   evaluators/  exact.py json_schema.py tool_calls.py evidence.py
@@ -150,7 +151,14 @@ source tree   scan, certain tier only                                   (llmreg 
   comparison/  baseline.py candidate.py diff.py regression.py clustering.py
   observability/ spans.py metrics.py aggregation.py
   adapters/    mock_model.py recorded_model.py scripted_model.py api_stub.py
+               api_guard.py api_cache.py api_transport.py
   reports/     base.py model.py markdown.py html.py</code></pre>
+
+  <p><code>pricing.py</code> is the single estimator: <code>COST_DECIMALS</code>,
+  <code>estimate_tokens</code>, <code>CostModel</code>, <code>PriceList</code>. The
+  executor's artifacts, the cost evaluator's metric, the comparison engine's delta
+  and the API adapter's cost ceiling all read it, so a number one component scores
+  and a number another refuses on cannot drift apart.</p>
 
   <h2>Adapters (Milestone 3)</h2>
   <p>An <strong>adapter</strong> is the only thing standing where a real model
@@ -171,7 +179,7 @@ source tree   scan, certain tier only                                   (llmreg 
     <tr><td><code>MockModelAdapter</code></td><td>Fixed outputs for tests; a deterministic default per case.</td></tr>
     <tr><td><code>RecordedModelAdapter</code></td><td>Replays the committed fixture runs verbatim, keyed by <code>(app_version, case_id)</code>. Baseline generator.</td></tr>
     <tr><td><code>ScriptedRegressionAdapter</code></td><td>Injects one known defect into a clean baseline. Candidate generator, and the ground truth the detector is measured against.</td></tr>
-    <tr><td><code>ApiAdapterStub</code></td><td>Interface only. Disabled by default; raises either way until Milestone 11.</td></tr>
+    <tr><td><code>ApiAdapterStub</code></td><td>The guarded paid-API adapter (Milestone 11). <strong>Disabled by default</strong>; behind seven gates and no network client. See <a href="cost-guard.html">Cost guard</a>.</td></tr>
   </table>
 
   <p>The scripted adapter is two layers: fifteen small, pure <em>injectors</em>
@@ -279,8 +287,9 @@ source tree   scan, certain tier only                                   (llmreg 
   <h2>Relevant files</h2>
   <ul class="files">
     <li>docs/PLAN.md · docs/TRACE_FORMAT.md · docs/METRICS.md · docs/OBSERVABILITY.md</li>
-    <li>src/llm_regression_observability/adapters/ — base.py, mock_model.py, recorded_model.py, scripted_model.py, api_stub.py</li>
-    <li>src/llm_regression_observability/executor.py — RunConfig, RunMeta, CostModel, execute_suite / write_run / run_suite</li>
+    <li>src/llm_regression_observability/adapters/ — base.py, mock_model.py, recorded_model.py, scripted_model.py, api_stub.py, api_guard.py, api_cache.py, api_transport.py</li>
+    <li>src/llm_regression_observability/pricing.py — the one estimator: COST_DECIMALS, estimate_tokens, CostModel, PriceList, CostEstimate</li>
+    <li>src/llm_regression_observability/executor.py — RunConfig, RunMeta, execute_suite / write_run / run_suite</li>
     <li>src/llm_regression_observability/traces/storage.py — byte-stable JSONL/JSON readers and writers</li>
     <li>src/llm_regression_observability/evaluators/ — one module per scorer; registry.py, base.py (METRIC_DIRECTION, NEVER_FLAG_METRICS)</li>
     <li>src/llm_regression_observability/comparison/ — base.py, baseline.py, candidate.py, diff.py, regression.py, clustering.py, aggregate.py</li>

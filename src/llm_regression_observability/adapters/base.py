@@ -27,6 +27,10 @@ import copy
 from dataclasses import dataclass, field
 from typing import Any
 
+# Re-exported: adapters have always reached for ``estimate_tokens`` from here, but
+# since Milestone 11 the estimator has one home, shared with the cost evaluator and
+# the API adapter's ceiling (see ``..pricing``).
+from ..pricing import estimate_tokens
 from ..schemas import (
     ErrorRecord,
     EvalCase,
@@ -49,19 +53,6 @@ __all__ = [
 class AdapterError(RuntimeError):
     """Raised when an adapter cannot produce an output (e.g. a missing recorded
     run, an unknown injection kind, or a disabled paid-API stub)."""
-
-
-def estimate_tokens(text: str) -> int:
-    """A deterministic, naive token estimate (~4 characters per token).
-
-    Deliberately crude: it exists so synthetic adapters can populate the
-    ``*_tokens_estimate`` fields without a tokenizer dependency. The run executor
-    (Milestone 4) and the paid-API adapter (Milestone 11) refine cost/token
-    accounting; nothing here claims to match a real tokenizer.
-    """
-    if not text:
-        return 0
-    return max(1, len(text) // 4)
 
 
 @dataclass(kw_only=True)

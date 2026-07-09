@@ -97,6 +97,7 @@ src/llm_regression_observability/
   schemas.py             typed data contracts (dataclasses + validation)
   cli.py                 `llmreg` argparse CLI
   executor.py            run-suite executor: cases + adapter -> RunRecords
+  pricing.py             the one token/cost estimator (shared by all priced paths)
 
   datasets/   loader.py fixtures.py versioning.py
   traces/     model_trace.py tool_trace.py redaction.py storage.py
@@ -105,6 +106,7 @@ src/llm_regression_observability/
   comparison/ baseline.py candidate.py diff.py regression.py clustering.py
   observability/ metrics.py spans.py aggregation.py
   adapters/   mock_model.py scripted_model.py recorded_model.py api_stub.py
+              api_guard.py api_cache.py api_transport.py
   reports/    markdown.py html.py
 ```
 
@@ -222,7 +224,10 @@ Small, committed, synthetic fixtures under `evals/fixtures/` and `data/fixtures/
 - `RecordedModelAdapter` — replays committed fixture outputs.
 - `ScriptedRegressionAdapter` — deterministically injects known regressions
   (used to prove the detector works).
-- `ApiAdapterStub` — interface only, disabled by default.
+- `ApiAdapterStub` — the guarded paid-API adapter, disabled by default. Seven
+  gates (opt-in → cache → estimate → dry-run → verified pricing → ceiling →
+  transport) and no network client ships with the package. See
+  `docs/API_ADAPTER.md`.
 
 Optional/later: Claude API adapter with cost guard; Claude Code / code-agent
 runtime trace importers (contracts defined in Milestone 10).

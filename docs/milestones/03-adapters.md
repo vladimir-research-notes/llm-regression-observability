@@ -74,9 +74,12 @@ is the ground-truth generator the detector is later measured against.
   secondary changes (e.g. `sj_extra_field` bumps `output_tokens_estimate` 40→44)
   that a generic injector cannot derive. See the review note.
 - **API stub is inert twice over.** Disabled by default it raises
-  `ApiAdapterDisabled`; even with `enabled=True` it raises `NotImplementedError`.
-  No default path — and no accidental call — can reach a paid API before
-  Milestone 11.
+  `ApiAdapterDisabled`; even with `enabled=True` it raised `NotImplementedError`.
+  No default path — and no accidental call — can reach a paid API.
+  *(Superseded by Milestone 11, which replaced the second refusal with the
+  guarded ladder behind that same opt-in: opting in now buys a dry-run estimate,
+  and a live call additionally needs a transport this package does not ship. The
+  first refusal is unchanged. See `docs/API_ADAPTER.md`.)*
 
 ### Observed injection behavior (smoke suite)
 

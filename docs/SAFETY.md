@@ -100,10 +100,30 @@ matched value.
 
 ## Optional paid-API mode
 
-No paid API is used by default or in any test. If an optional API adapter is
-enabled (Milestone 11), it is gated by: dry-run mode, a token/cost estimator, a
-hard max-cost guard, a response cache, and explicit opt-in. Real API responses
-are never committed.
+**No paid API is used by default or in any test**, and no CLI subcommand in this
+repository can spend money. The package contains no network client: `anthropic` is
+not a dependency, nothing imports it, and `tests/test_api_stub.py` asserts that by
+parsing the package's own source with `ast` (a runtime check would only see the
+imports that happened to run). Offline is enforced rather than assumed — an autouse
+fixture in `conftest.py` disables outbound TCP for all 849 tests.
+
+The guarded adapter (`adapters/api_stub.py`, Milestone 11) passes every call
+through seven gates in a fixed order, each refusing for its own reason:
+
+1. **explicit opt-in** — first, so a disabled adapter does not even stat a file;
+2. **response cache** — a hit spends nothing and consumes no budget;
+3. **token/cost estimator** — an unpriced model refuses rather than defaulting;
+4. **dry-run mode** — the default, even once opted in;
+5. **verified pricing** — a ceiling over unchecked prices is refused;
+6. **hard max-cost guard** — refuses *before* the transport, cumulatively, and
+   never truncates the request to fit a budget;
+7. **transport** — absent by default.
+
+Credentials are never read, stored, logged, or cached by this package: the
+reference transport defers to the provider SDK's own key resolution. The response
+cache (`.api_cache/`) is gitignored. Real API responses are never committed. See
+[`API_ADAPTER.md`](API_ADAPTER.md) for the reasoning behind the gate order, and
+[`LIMITATIONS.md`](LIMITATIONS.md) for what the ceiling cannot guarantee.
 
 ## Honest framing
 

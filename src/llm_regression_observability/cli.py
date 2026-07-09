@@ -12,8 +12,14 @@ exercised end to end:
 Milestone 2 adds ``validate-fixtures``; Milestone 4 adds ``run-suite``; Milestone
 6 adds ``compare``; Milestone 7 adds ``report``; Milestone 8 adds ``aggregate``;
 Milestone 9 adds ``scan-secrets``; Milestone 10 adds ``import-trace`` and
-``export-run``. This module stays dependency-free and calls no network, clock, or
-randomness in any scored path.
+``export-run``; Milestone 11 adds ``estimate-cost``. This module stays
+dependency-free and calls no network, clock, or randomness in any scored path.
+
+**No subcommand here can spend money.** ``estimate-cost`` is a calculator, and
+``run-suite --adapter api-stub`` builds the API adapter with its default,
+opted-out guard (``executor.build_adapter``), which refuses before it reaches a
+cache, a transport, or a provider. Opting in is a programmatic act; see
+``docs/API_ADAPTER.md``.
 """
 
 from __future__ import annotations
@@ -150,6 +156,73 @@ def _cmd_scan_secrets(args: argparse.Namespace) -> int:
     print("findings         : 0 (no credential-like pattern in a committed file)")
     print("result           : PASS")
     return 0
+
+
+#: ``estimate-cost`` prices a suite it never runs. Kept here rather than on the
+#: adapter's default because a CLI default that silently bounds output tokens at
+#: some number is a CLI that quietly changes what it quoted you.
+DEFAULT_MAX_OUTPUT_TOKENS = 1024
+
+
+def _cmd_estimate_cost(args: argparse.Namespace) -> int:
+    """What would running this suite against a priced model cost? No call, ever.
+
+    This is a calculator, not the adapter: it opts in to nothing, opens no cache,
+    and cannot reach a provider. The ceiling it reports is the one the guarded
+    adapter would enforce, computed by the same estimator
+    (``pricing.PriceList``), so a number printed here and a number a guard
+    refuses on cannot disagree.
+    """
+    # Imported lazily so the cheap subcommands do not pay for the loaders.
+    from .datasets import load_eval_suite
+    from .pricing import PriceList, PricingError, load_price_list
+
+    try:
+        suite = load_eval_suite(Path(args.suite))
+    except Exception as exc:  # noqa: BLE001 - any load failure is a clean FAIL
+        print(f"error            : {args.suite}: cannot load suite ({exc})")
+        print("result           : FAIL")
+        return 1
+
+    try:
+        pricing = (
+            load_price_list(args.pricing)
+            if args.pricing
+            else PriceList.synthetic(args.model)
+        )
+        estimates = [
+            pricing.estimate_case(
+                args.model, case, max_output_tokens=args.max_output_tokens
+            )
+            for case in suite.cases
+        ]
+    except PricingError as exc:
+        print(f"error            : {exc}")
+        print("result           : FAIL")
+        return 1
+
+    input_tokens = sum(e.input_tokens for e in estimates)
+    output_bound = sum(e.output_tokens for e in estimates)
+    total = round(sum(e.cost_usd for e in estimates), 8)
+    within = total <= args.max_cost_usd
+
+    verified = "verified" if pricing.verified else "UNVERIFIED"
+    print(f"suite            : {suite.suite_id} ({len(suite.cases)} cases)")
+    print(f"model            : {args.model}")
+    print(f"pricing          : {pricing.source} ({verified})")
+    if not pricing.verified:
+        print(
+            "                   estimates only; the API adapter refuses to spend "
+            "against prices nobody has checked"
+        )
+    print(f"input tokens     : {input_tokens} (estimated, ~4 chars/token)")
+    print(f"output tokens    : {output_bound} (upper bound: max_output_tokens)")
+    print(f"cost upper bound : ${total:.6f}")
+    print(f"max-cost ceiling : ${args.max_cost_usd:.6f}")
+    print(f"within ceiling   : {'yes' if within else 'no'}")
+    print("api calls        : 0 (this command cannot make one)")
+    print(f"result           : {'PASS' if within else 'FAIL'}")
+    return 0 if within else 1
 
 
 def _cmd_run_suite(args: argparse.Namespace) -> int:
@@ -693,6 +766,46 @@ def build_parser() -> argparse.ArgumentParser:
         help="directory to scan; default: the repository root",
     )
     p_scan.set_defaults(func=_cmd_scan_secrets)
+
+    p_estimate = sub.add_parser(
+        "estimate-cost",
+        help="price a suite against a model without running it (no API call)",
+        description="Upper-bound the cost of running a suite against a priced "
+        "model. Makes no API call and needs no opt-in: it reads the suite text "
+        "and a price list and does arithmetic. Exits 1 if the bound exceeds "
+        "--max-cost-usd, so it can gate a job before the job can spend.",
+    )
+    p_estimate.add_argument(
+        "--suite",
+        required=True,
+        help="path to a suite manifest, e.g. evals/suites/smoke.yaml",
+    )
+    p_estimate.add_argument(
+        "--model",
+        default="api-model",
+        help="model id to price against; must appear in the price list",
+    )
+    p_estimate.add_argument(
+        "--pricing",
+        default=None,
+        help="price-list JSON (see config/api_pricing.example.json); default: "
+        "the synthetic placeholder prices",
+    )
+    p_estimate.add_argument(
+        "--max-output-tokens",
+        type=int,
+        default=DEFAULT_MAX_OUTPUT_TOKENS,
+        help=f"output-token bound each call is priced at (default: "
+        f"{DEFAULT_MAX_OUTPUT_TOKENS}). A bound, not a prediction",
+    )
+    p_estimate.add_argument(
+        "--max-cost-usd",
+        type=float,
+        default=0.0,
+        help="ceiling to compare the bound against (default: 0.0 — nothing is "
+        "affordable, which is the safe value to forget to set)",
+    )
+    p_estimate.set_defaults(func=_cmd_estimate_cost)
 
     p_run = sub.add_parser(
         "run-suite",

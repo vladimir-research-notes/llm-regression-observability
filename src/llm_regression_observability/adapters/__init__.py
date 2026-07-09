@@ -6,15 +6,50 @@ Four adapters (``docs/PLAN.md`` §8, ``docs/milestones/03-adapters.md``):
 * :class:`RecordedModelAdapter` — replays committed fixture runs verbatim.
 * :class:`ScriptedRegressionAdapter` — injects known regressions into a clean
   baseline (the ground-truth generator the detector is measured against).
-* :class:`ApiAdapterStub` — interface only, disabled by default (Milestone 11).
+* :class:`ApiAdapterStub` — the guarded paid-API adapter, **disabled by default**
+  (Milestone 11). Its guards live in :mod:`.api_guard` and :mod:`.api_cache`.
 
 Shared plumbing (:class:`AdapterContext`, :class:`AdapterResponse`,
 :func:`build_run_record`) lives in :mod:`.base`.
+
+:mod:`.api_transport` — the seam where a real provider client would go — is
+deliberately **not** imported here. Re-exporting it would put a network client one
+``import *`` away from the default path; ``tests/test_api_stub.py`` asserts this
+module's source never names it.
 """
 
 from __future__ import annotations
 
-from .api_stub import ApiAdapterDisabled, ApiAdapterStub
+from .api_cache import (
+    CACHE_VERSION,
+    CacheEntry,
+    CacheError,
+    ResponseCache,
+    cache_key,
+    default_cache_dir,
+)
+from .api_guard import (
+    ApiAdapterDisabled,
+    ApiGuard,
+    ApiGuardError,
+    CostLedger,
+    MaxCostExceeded,
+    TransportMissing,
+    UnverifiedPricing,
+)
+from .api_stub import (
+    DEFAULT_MAX_OUTPUT_TOKENS,
+    DRY_RUN_ERROR_KIND,
+    SOURCE_CACHE,
+    SOURCE_DRY_RUN,
+    SOURCE_TRANSPORT,
+    ApiAdapterStub,
+    ApiCall,
+    ApiPlan,
+    ApiRequest,
+    ApiResponse,
+    Transport,
+)
 from .base import (
     AdapterContext,
     AdapterError,
@@ -68,9 +103,34 @@ __all__ = [
     "ScriptedRegressionAdapter",
     "Injection",
     "INJECTION_KINDS",
-    "ApiAdapterStub",
-    "ApiAdapterDisabled",
     "ADAPTER_NAMES",
+    # Guarded paid-API adapter (Milestone 11). Disabled by default.
+    "ApiAdapterStub",
+    "ApiCall",
+    "ApiPlan",
+    "ApiRequest",
+    "ApiResponse",
+    "Transport",
+    "DEFAULT_MAX_OUTPUT_TOKENS",
+    "DRY_RUN_ERROR_KIND",
+    "SOURCE_CACHE",
+    "SOURCE_DRY_RUN",
+    "SOURCE_TRANSPORT",
+    # Its guards.
+    "ApiGuard",
+    "ApiGuardError",
+    "ApiAdapterDisabled",
+    "MaxCostExceeded",
+    "TransportMissing",
+    "UnverifiedPricing",
+    "CostLedger",
+    # Its response cache.
+    "CacheEntry",
+    "CacheError",
+    "ResponseCache",
+    "cache_key",
+    "default_cache_dir",
+    "CACHE_VERSION",
     # Injection kinds:
     "INVALID_JSON",
     "DROP_JSON_FIELD",

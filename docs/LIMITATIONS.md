@@ -30,7 +30,7 @@ future direction, not a current claim.
 
 Token counts use a transparent char-based estimator (~4 characters per token, no
 tokenizer) and a **synthetic price list** — `$0.003` per 1k input tokens and
-`$0.015` per 1k output tokens, in `executor.CostModel`. Those prices are
+`$0.015` per 1k output tokens, in `pricing.CostModel`. Those prices are
 placeholders in a plausible order of magnitude; they are not any vendor's real
 pricing, and nothing in the default path calls a paid API. Costs are **estimates
 for relative comparison**, not bills. Real tokenization and real pricing differ.
@@ -40,6 +40,41 @@ do), the executor treats them as recorded inputs and does not overwrite them.
 `run_meta.json` reports `tokens_estimated_cases` and `cost_estimated_cases` so
 an artifact never hides which numbers were derived rather than recorded.
 
+## A cost ceiling is only as good as its price list
+
+The max-cost guard (`adapters/api_guard.py`, Milestone 11) refuses a call whose
+estimated cost would breach a configured USD ceiling. It enforces that ceiling
+against `chars / 4` tokens times prices an operator supplied. If the price list is
+wrong, the ceiling is wrong by the same factor, and nothing in this repository can
+detect that: it has no network and cannot look up a price.
+
+The mitigation is provenance rather than verification. A `PriceList` carries
+`verified` (has a human compared these to the provider's published prices?) and
+`priced_at` (when?), the spend path **refuses an unverified list** unless the
+operator explicitly sets `allow_unverified_pricing`, and a `verified: true` list
+with no `priced_at` is rejected outright. That converts a silent failure into an
+operator decision. It does not make the estimate correct.
+
+Two further gaps: the ceiling bounds *estimated* spend before each call, so a
+provider that bills differently than its published prices is not caught; and
+`allow_unverified_pricing` is a real escape hatch that permits spending against
+numbers nobody checked.
+
+## The paid-API transport is untested by construction
+
+`adapters/api_transport.py` is a reference implementation of the seam a real
+provider client plugs into. It has **no test coverage and never runs in CI**,
+because running it would cost money. Its request/response mapping is written from
+the SDK's documented shape and has not been executed against a live response.
+Nothing else in the package imports it, `anthropic` is not a dependency, and the
+guarded adapter refuses a live call when no transport is supplied — so the absence
+of coverage is contained rather than load-bearing. But it is an absence.
+
+Relatedly, the repository-wide network block in `conftest.py` patches the `socket`
+module. A library that bypassed it (via `ctypes`, say) would not be caught. The
+guarantee is "no test opens a TCP connection through the standard library", not
+"no test can possibly emit a packet".
+
 ## Recorded, not measured, latency
 
 `latency_ms` is a value the adapter reports, read from a fixture. The executor
@@ -48,8 +83,11 @@ a scored field, so two runs on the same inputs would stop being byte-identical
 and every latency assertion would become flaky. The cost of this choice is real:
 the framework cannot currently detect a latency regression that exists only in
 wall-clock time on live infrastructure. It detects latency regressions *as
-reported by the trace source* — which is what an imported production trace or a
-live adapter (Milestone 11) would supply.
+reported by the trace source* — which is what an imported production trace or the
+guarded API adapter's transport supplies. That transport is the one place in the
+package permitted to read a clock, because there the ambient value *is* the
+measurement being taken; a response reporting `latency_ms = 0.0` is refused rather
+than recorded, for the reason `docs/INTEGRATION_CONTRACTS.md` gives.
 
 ## Placeholder scorers
 

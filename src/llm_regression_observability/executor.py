@@ -59,7 +59,6 @@ produce byte-identical artifacts, modulo an explicit ``run_id``.
 from __future__ import annotations
 
 import dataclasses
-import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -78,6 +77,16 @@ from .adapters import (
     estimate_tokens,
 )
 from .datasets import load_eval_suite, repo_root
+
+# The estimator lives in one place and is shared with the cost evaluator, the
+# comparison engine, and the API adapter's cost ceiling (Milestone 11). Re-exported
+# here because ``executor.CostModel`` is how the CLI and the importers spell it.
+from .pricing import (
+    COST_DECIMALS,
+    SYNTHETIC_COST_MODEL,
+    CostModel,
+    billable_input_text,
+)
 from .schemas import ErrorRecord, EvalCase, EvalSuite, RunRecord, Schema
 from .traces.redaction import REDACTED, RecordRedaction, redact_record
 from .traces.storage import (
@@ -113,9 +122,6 @@ RUN_META_JSON = "run_meta.json"
 #: constant, never ``datetime.now()`` — timestamps are inputs (``CLAUDE.md``).
 DEFAULT_TIMESTAMP = "1970-01-01T00:00:00Z"
 
-#: Cost is rounded to this many decimals so float noise cannot break byte-stability.
-COST_DECIMALS = 8
-
 #: ``run_id`` doubles as a directory name; keep it a safe single path segment.
 _SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
@@ -128,38 +134,6 @@ _OPTIONAL_IDENTITY = ("model_id", "prompt_version", "tool_version", "timestamp")
 
 class ExecutorError(RuntimeError):
     """Raised on an unusable run configuration or an adapter failure in strict mode."""
-
-
-# --------------------------------------------------------------------------- #
-# Cost model
-# --------------------------------------------------------------------------- #
-
-
-@dataclass(kw_only=True)
-class CostModel(Schema):
-    """A linear price per 1,000 tokens.
-
-    The default prices are **synthetic placeholders** chosen to be in the right
-    order of magnitude for a hosted model. They are not any vendor's real
-    pricing, and nothing in this repository calls a paid API. They exist so that
-    ``cost_estimate_usd`` is a defined, reproducible number rather than an
-    absent one; a real adapter (Milestone 11) supplies its own.
-    """
-
-    input_usd_per_1k: float = 0.003
-    output_usd_per_1k: float = 0.015
-
-    def estimate(self, input_tokens: int, output_tokens: int) -> float:
-        """Cost of a call, rounded to :data:`COST_DECIMALS` for byte-stability."""
-        usd = (
-            input_tokens / 1000.0 * self.input_usd_per_1k
-            + output_tokens / 1000.0 * self.output_usd_per_1k
-        )
-        return round(usd, COST_DECIMALS)
-
-
-#: The default price list. Synthetic; see :class:`CostModel`.
-SYNTHETIC_COST_MODEL = CostModel()
 
 
 # --------------------------------------------------------------------------- #
@@ -263,8 +237,12 @@ def build_adapter(
 ) -> ModelAdapter:
     """Construct the adapter named on the command line.
 
-    ``api-stub`` is constructible but inert: it raises as soon as it is asked to
-    generate, so selecting it can never reach a paid API (Milestone 11).
+    ``api-stub`` is constructible but inert. It is built with the default
+    :class:`~.adapters.ApiGuard` — opted out, dry-run, zero ceiling — and this
+    function offers no parameter that could opt it in, so **no CLI invocation in
+    this repository can reach a paid API**. Opting in is a programmatic act
+    (``ApiAdapterStub(guard=ApiGuard(enabled=True, ...))``) that also requires a
+    transport this package does not ship. See ``docs/API_ADAPTER.md``.
     """
     if name == RecordedModelAdapter.name:
         return RecordedModelAdapter.from_fixtures(fixtures_path)
@@ -298,26 +276,6 @@ def _check_run_id(run_id: str) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def _input_text(case: EvalCase) -> str:
-    """The text billed as input: prompt, structured payload, retrieval context.
-
-    Serialized with sorted keys so the estimate does not depend on dict order.
-    """
-    parts = [case.prompt]
-    if case.input_payload:
-        parts.append(
-            json.dumps(
-                case.input_payload,
-                sort_keys=True,
-                ensure_ascii=False,
-                separators=(",", ":"),
-            )
-        )
-    for doc in case.retrieval_docs or []:
-        parts.append(doc.text)
-    return "\n".join(p for p in parts if p)
-
-
 @dataclass
 class _Accounting:
     """Whether the executor derived a record's tokens / cost, or the adapter did."""
@@ -334,7 +292,7 @@ def _account(record: RunRecord, case: EvalCase, config: RunConfig) -> _Accountin
     output_tokens = record.output_tokens_estimate
     tokens_estimated = False
     if input_tokens <= 0:
-        input_tokens = estimate_tokens(_input_text(case))
+        input_tokens = estimate_tokens(billable_input_text(case))
         tokens_estimated = True
     if output_tokens <= 0 and record.final_output:
         output_tokens = estimate_tokens(record.final_output)

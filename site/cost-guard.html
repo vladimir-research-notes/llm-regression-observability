@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cost guard — llm-regression-observability</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site">
+  <a class="brand" href="index.html">llm-regression-observability</a>
+  <div class="tagline">A CPU-first framework for detecting, explaining, and reporting regressions in LLM applications and agentic systems.</div>
+  <nav class="site">
+    <a href="index.html">Overview</a>
+    <a href="architecture.html">Architecture</a>
+    <a href="trace-format.html">Trace format</a>
+    <a href="metrics.html">Metrics</a>
+    <a href="regression-categories.html">Regression categories</a>
+    <a href="example-comparison.html">Example comparison</a>
+    <a href="integration-contracts.html">Integration contracts</a>
+    <a href="cost-guard.html" class="active">Cost guard</a>
+    <a href="results.html">Results</a>
+    <a href="milestones.html">Milestones</a>
+    <a href="limitations.html">Limitations</a>
+    <a href="safety.html">Safety</a>
+    <a href="roadmap.html">Roadmap</a>
+  </nav>
+</header>
+<main>
+  <h1>The cost guard</h1>
+  <p class="lede">The one code path in this project that <em>could</em> cost money,
+  and the seven gates in front of it. The guards are the deliverable; the network
+  call is not. The package ships no network client at all.</p>
+
+  <p><span class="status done">status: Milestone 11 complete — <strong>all five protections</strong> (explicit opt-in, dry-run by default, a shared token/cost estimator, a hard max-cost ceiling, a keyed gitignored response cache), plus two the spec did not ask for: a price list that <strong>cannot silently authorize spend</strong>, and a repository-wide network kill switch. 97 tests; 849 total, all offline</span></p>
+
+  <h2>Brief explanation</h2>
+  <p>An evaluation harness gets re-run constantly — after a scorer changes, after
+  a threshold moves, after a report template is edited. None of those is a reason
+  to pay a provider again. And an evaluation harness is exactly the kind of program
+  that gets pointed at a suite of 500 cases by someone who has not read it.</p>
+
+  <p>So the question is not "how do we call an API" — that is ten lines — but
+  <strong>what must be true before a call is possible</strong>, and what the system
+  does when it is about to spend more than you meant. Every decision below follows
+  from answering that in the strictest direction available.</p>
+
+  <h2>The seven gates</h2>
+  <p>Every call passes through the same fixed ladder
+  (<code>adapters/api_stub.py::ApiAdapterStub.call</code>). The order <em>is</em>
+  the design.</p>
+
+  <table>
+    <tr><th>#</th><th>Gate</th><th>Refusal</th><th>Why it sits here</th></tr>
+    <tr><td>1</td><td><strong>Opt-in</strong></td><td><code>ApiAdapterDisabled</code></td><td>First, so a disabled adapter does not even <code>stat</code> a cache file.</td></tr>
+    <tr><td>2</td><td><strong>Cache</strong></td><td><em>(returns)</em></td><td>Before the budget: a hit spends nothing and must not consume budget, or a completed suite could never be re-run under the ceiling it already paid. Before dry-run: a dry run over a warm cache returns the real answers, free.</td></tr>
+    <tr><td>3</td><td><strong>Estimate</strong></td><td><code>UnpricedModel</code></td><td>Real input tokens; output priced at <code>max_output_tokens</code>. An unpriced model refuses rather than defaulting to a number that looks like a cost.</td></tr>
+    <tr><td>4</td><td><strong>Dry run</strong></td><td><em>(returns)</em></td><td>The default, even once opted in. Nothing below this line executes.</td></tr>
+    <tr><td>5</td><td><strong>Verified pricing</strong></td><td><code>UnverifiedPricing</code></td><td>A ceiling enforced against unchecked prices is theater.</td></tr>
+    <tr><td>6</td><td><strong>Max-cost ceiling</strong></td><td><code>MaxCostExceeded</code></td><td>Refuses — never truncates. Checked <em>before</em> the transport, so an over-budget suite makes zero calls, not <em>n</em> − 1.</td></tr>
+    <tr><td>7</td><td><strong>Transport</strong></td><td><code>TransportMissing</code></td><td>Absent by default. This package ships no network client.</td></tr>
+  </table>
+
+  <p>Gates 5 and 6 sit above gate 7 deliberately: budget and pricing are
+  <em>policy</em>, and policy is decided without reference to whether a client
+  happens to be installed. Every refusal subclasses <code>ApiGuardError</code>,
+  which subclasses <code>AdapterError</code> — so the executor's existing
+  adapter-failure handling catches a refused API call the same way it catches a
+  missing fixture. A guard that needs bespoke plumbing to be honored is a guard
+  that will eventually be bypassed.</p>
+
+  <h2>Deeper technical explanation</h2>
+
+  <h3>Opt-in is a value, not an ambient read</h3>
+  <p><code>ApiGuard.from_env(env)</code> takes the environment <strong>as an
+  argument</strong>. Library code that reaches for <code>os.environ</code> makes its
+  behavior depend on a variable no artifact records — the same objection the
+  determinism rule makes to <code>time.time()</code>. The CLI may read the process
+  environment at its boundary; nothing below the boundary does. An unrecognized
+  boolean (<code>LLMREG_API_DRY_RUN=maybe</code>) is <em>refused</em>, not
+  defaulted: a parser cannot know whether the safe fallback for the key it is
+  reading is "spend" or "don't", so refusing both is the only rule that is safe in
+  every position.</p>
+  <p><code>LLMREG_API_ENABLED=1</code> alone buys an <em>estimate</em>, not a call.
+  Turning off dry-run is a second, separate decision, because "I want to use the
+  API adapter" and "I want to spend money right now" are different intentions and
+  one flag cannot tell them apart.</p>
+
+  <h3>An estimate bounds the cost; it does not predict it</h3>
+  <p>Input tokens are knowable before a call; output tokens are not. The estimator
+  prices output at <code>max_output_tokens</code> — the worst case the API is
+  permitted to produce — because a budget guard that priced the <em>average</em>
+  output is a guard that lets the tail through.
+  <code>CostEstimate.output_tokens_bounded</code> records which of the two any
+  number is, so a report can never present an upper bound as a measurement. The
+  ledger then settles from the provider's reported usage: the guard reasons about
+  what <em>could</em> be spent, the ledger tracks what <em>was</em>.</p>
+
+  <h3>The ceiling defaults to zero, and refuses rather than truncating</h3>
+  <p>An opted-in adapter with no configured budget can spend nothing at all. The
+  failure mode "I meant to set it and forgot" must cost nothing, so the unset value
+  is the strictest one, not the loosest. And the guard never silently lowers
+  <code>max_tokens</code> to fit a budget: that would change the experiment, and a
+  harness that quietly changes the experiment to stay in budget is worse than one
+  that stops.</p>
+
+  <h3>The estimator got one home</h3>
+  <p><code>COST_DECIMALS</code> used to be declared in three modules with a comment
+  asking the reader to keep them in sync. That is survivable while the only consumer
+  is a synthetic price list; it stops being survivable when an estimate is what
+  stands between a run and a bill, because a guard that rounds cost to eight
+  decimals while the evaluator rounds to six is a guard that can be argued with.
+  <code>pricing.py</code> now backs the executor's artifacts, the cost evaluator's
+  metric, the comparison engine's delta, and the guard's ledger. The refactor is
+  byte-preserving: <code>sha256(run.jsonl)</code> for the smoke baseline is still
+  <code>ee23bfde…</code>, the value committed at Milestone 4.</p>
+
+  <h3>Prices are configuration with provenance</h3>
+  <p>Vendor pricing changes; a constant in a Python file does not.
+  <code>PriceList</code> is loaded from JSON and carries <code>verified</code> (has a
+  human compared these against the provider's published prices?) and
+  <code>priced_at</code> (when?). It is <code>verified: false</code> for every list
+  committed here, because this repository <em>cannot</em> check a price: it has no
+  network, and a number copied into source on the day it was written silently rots.
+  A <code>verified: true</code> list with no <code>priced_at</code> is rejected
+  outright — a "verified" claim with no date cannot go stale, which is the
+  problem.</p>
+  <p>Estimating and comparing with an unverified list is fine: both sides of a delta
+  use the same prices, so the delta is sound regardless. <strong>Spending</strong>
+  against one is refused, unless the operator sets
+  <code>allow_unverified_pricing</code> — an explicit statement that they know the
+  ceiling is being enforced against numbers nobody checked.</p>
+
+  <h3>A transport may not invent a measurement</h3>
+  <p>A response reporting zero tokens, or zero latency, is <strong>refused</strong>.
+  This is the rule Milestone 10's importers established: a missing measurement
+  recorded as <code>0.0</code> is not missing, it is a <em>number</em>, and the
+  comparison engine believes numbers — a zero-latency baseline makes every candidate
+  an unbounded <code>latency_regression</code>. Cost cannot be settled from usage
+  that was never reported either, so the ledger would silently under-count the spend
+  it exists to cap.</p>
+
+  <h3>The network client that isn't here</h3>
+  <p><code>adapters/api_transport.py</code> is the seam a real provider client plugs
+  into. It holds a documented reference implementation and <strong>nothing imports
+  it</strong>: <code>api_stub.py</code> does not, <code>adapters/__init__.py</code>
+  does not re-export it, its <code>import anthropic</code> lives inside the function
+  body, and <code>anthropic</code> is not a dependency of this package.</p>
+  <p><code>tests/test_api_stub.py</code> asserts all four by <strong>parsing the
+  package's own source</strong> with <code>ast</code>, not by watching
+  <code>sys.modules</code> — a runtime check only sees the imports that happened to
+  run in that process. The scanner is itself unit-tested against known-bad inputs (a
+  top-level import, a <code>try:</code>-wrapped import, an <code>if:</code>-wrapped
+  import) so it cannot silently match nothing and make every assertion below it
+  vacuous.</p>
+  <p>The transport function has <strong>no test coverage and never runs in
+  CI</strong>, because running it would cost money. It is the documented shape of the
+  thing, not a load-bearing part of the system.</p>
+
+  <h3>Determinism</h3>
+  <p>Nothing in the guard ladder reads a clock, an RNG, or a socket:
+  <code>stored_at</code> on a cache entry is the run's recorded timestamp, and
+  latency is whatever the transport reports. A live call is inherently
+  nondeterministic — that is a property of calling a real API, not of this code —
+  and it is confined to the transport at the bottom of the ladder, behind all seven
+  gates, in a module nothing imports by default. The <code>perf_counter</code> that
+  measures its latency is imported inside the function body for the same reason the
+  client is: it is the one place where the ambient value <em>is</em> the measurement
+  being taken.</p>
+
+  <h2>Estimating without any of this</h2>
+  <p><code>llmreg estimate-cost</code> prices a suite it never runs. It is a
+  calculator: it opts in to nothing, opens no cache, and cannot reach a provider. It
+  exits <code>1</code> if the bound exceeds <code>--max-cost-usd</code>, so it can
+  gate a job before the job can spend.</p>
+  <pre><code>$ llmreg estimate-cost --suite evals/suites/smoke.yaml \
+      --pricing config/api_pricing.example.json \
+      --model claude-opus-4-8 --max-cost-usd 0.01
+
+suite            : smoke (8 cases)
+model            : claude-opus-4-8
+pricing          : config/api_pricing.example.json (UNVERIFIED)
+                   estimates only; the API adapter refuses to spend against prices nobody has checked
+input tokens     : 239 (estimated, ~4 chars/token)
+output tokens    : 8192 (upper bound: max_output_tokens)
+cost upper bound : $0.205995
+max-cost ceiling : $0.010000
+within ceiling   : no
+api calls        : 0 (this command cannot make one)
+result           : FAIL</code></pre>
+  <p>The ceiling it reports is the one the guarded adapter would enforce, computed by
+  the same estimator — so a number printed here and a number a guard refuses on
+  cannot disagree.</p>
+
+  <h2>Wiring it up, if you must</h2>
+  <pre><code>from llm_regression_observability.adapters import ApiAdapterStub, ApiGuard
+from llm_regression_observability.adapters.api_transport import anthropic_transport
+from llm_regression_observability.pricing import load_price_list
+
+adapter = ApiAdapterStub(
+    guard=ApiGuard(enabled=True, dry_run=False, max_cost_usd=0.50),
+    model_id="claude-sonnet-5",
+    pricing=load_price_list("config/api_pricing.json"),  # yours, verified
+    transport=anthropic_transport(),                     # requires `anthropic`
+)</code></pre>
+  <p>Four deliberate acts — opt in, disable dry-run, set a ceiling, supply a verified
+  price list — plus install a dependency this project does not declare and pass a
+  transport it does not ship. That is the intended amount of friction.</p>
+
+  <h2>Current implementation status</h2>
+  <ul>
+    <li><strong>Complete</strong> (Milestone 11). All five required protections, plus verified-pricing provenance and a repository-wide network kill switch.</li>
+    <li><strong>No CLI subcommand can spend money.</strong> <code>build_adapter("api-stub")</code> constructs the adapter with the default, opted-out guard and offers no parameter that could opt it in.</li>
+    <li><strong>Offline is enforced, not assumed.</strong> An autouse fixture in <code>conftest.py</code> disables <code>socket.socket.connect</code>, <code>connect_ex</code> and <code>socket.create_connection</code> for all 849 tests; one test asserts the fixture is armed.</li>
+  </ul>
+
+  <h2>Relevant files</h2>
+  <ul>
+    <li>src/llm_regression_observability/pricing.py — the one estimator: <code>COST_DECIMALS</code>, <code>estimate_tokens</code>, <code>CostModel</code>, <code>PriceList</code>, <code>CostEstimate</code></li>
+    <li>src/llm_regression_observability/adapters/api_guard.py — <code>ApiGuard</code>, <code>CostLedger</code>, the refusal hierarchy</li>
+    <li>src/llm_regression_observability/adapters/api_cache.py — <code>ResponseCache</code>, <code>CacheEntry</code>, <code>cache_key</code></li>
+    <li>src/llm_regression_observability/adapters/api_stub.py — the seven-gate ladder</li>
+    <li>src/llm_regression_observability/adapters/api_transport.py — the seam; imported by nothing</li>
+    <li>config/api_pricing.example.json — unverified placeholder price list</li>
+    <li>tests/test_api_stub.py — 97 tests</li>
+    <li>docs/API_ADAPTER.md — full reasoning</li>
+  </ul>
+
+  <h2>Current test/result status</h2>
+  <ul>
+    <li><code>python3 -m pytest -q</code> → <strong>849 passed</strong>, CPU-only and offline.</li>
+    <li><code>tests/test_api_stub.py</code> → <strong>97 tests</strong>.</li>
+    <li>Adversarial checks run during development: removing <code>ledger.check(...)</code> from the ladder fails <strong>5</strong> tests, including the one asserting the ceiling is checked <em>before</em> the transport is looked for; replacing the cache lookup with <code>entry = None</code> fails <strong>6</strong>.</li>
+    <li>The <code>pricing.py</code> refactor touched scored paths and changed no artifact: smoke baseline <code>sha256(run.jsonl)</code> still <code>ee23bfde…</code>, the same six clusters detected, the committed example report regenerates byte-identically.</li>
+  </ul>
+
+  <h2>Open questions and limitations</h2>
+  <ul>
+    <li><strong>A ceiling is only as good as its price list.</strong> It is enforced against <code>chars / 4</code> tokens times prices an operator supplied. If the price list is wrong, the ceiling is wrong by the same factor, and nothing here can detect that — it has no network. <code>verified</code>/<code>priced_at</code> convert a silent failure into an operator decision; they do not make the estimate correct.</li>
+    <li><code>allow_unverified_pricing</code> is a real escape hatch. It is off by default and the error text explains the consequence, but it permits spending against numbers nobody checked.</li>
+    <li>The transport is <strong>untested by construction</strong>. Its Messages-API field mapping is written from the SDK's documented shape and has never been executed against a live response.</li>
+    <li>The network block patches the <code>socket</code> module. A library bypassing it (via <code>ctypes</code>) would not be caught. The guarantee is "no test opens a TCP connection through the standard library", not "no test can possibly emit a packet".</li>
+    <li>A dry-run record marks itself with an <code>infra</code>-origin <code>api_dry_run</code> error because <code>RunRecord</code> has no metadata field. This is a schema workaround; if dry-run records are ever compared for real, <code>RunRecord</code> may want an explicit provenance field.</li>
+    <li>A cache hit is keyed on request content, not on time. A provider that changes a model's behavior behind a stable model id will be served the old response until <code>.api_cache/</code> is cleared. The right trade for reproducibility; the wrong one for freshness.</li>
+  </ul>
+</main>
+<footer class="site">llm-regression-observability — reliability/evaluation framework. Not a medical, legal, or security authority.</footer>
+</body>
+</html>

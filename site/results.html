@@ -18,6 +18,7 @@
     <a href="regression-categories.html">Regression categories</a>
     <a href="example-comparison.html">Example comparison</a>
     <a href="integration-contracts.html">Integration contracts</a>
+    <a href="cost-guard.html">Cost guard</a>
     <a href="results.html" class="active">Results</a>
     <a href="milestones.html">Milestones</a>
     <a href="limitations.html">Limitations</a>
@@ -27,7 +28,7 @@
 </header>
 <main>
   <h1>Results</h1>
-  <p><span class="status done">status: Milestone 9 complete — 18/18 injected defects detected with their annotated category and severity; 0 false positives on the 8 negative controls; the comparison renders as a deterministic, redaction-gated report; each run projects into a span tree and reduces to suite metrics that keep harness signals separate; a masking redactor now runs in front of every write, and 52/52 committed fixture records pass through it unchanged; 651 tests passing</span></p>
+  <p><span class="status done">status: Milestone 11 complete — 18/18 injected defects detected with their annotated category and severity; 0 false positives on the 8 negative controls; the comparison renders as a deterministic, redaction-gated report; each run projects into a span tree and reduces to suite metrics that keep harness signals separate; a masking redactor runs in front of every write, and 52/52 committed fixture records pass through it unchanged; traces from outside this repository enter through versioned import contracts; and the optional paid-API adapter sits behind seven gates and no network client; 849 tests passing, all offline</span></p>
 
   <div class="callout">Everything below is measured on <strong>synthetic fixtures
   with injected defects</strong>. 18/18 recall on a suite built to be detected is
@@ -329,10 +330,39 @@ result           : PASS</code></pre>
   span attribute of all 52 committed fixture records against the free text of the
   record it came from.</p>
 
+  <h2>The cost guard (Milestone 11)</h2>
+  <p>The one code path that <em>could</em> cost money, and the seven gates in front
+  of it. Full reasoning on the <a href="cost-guard.html">Cost guard</a> page.</p>
+  <table>
+    <tr><th>Claim</th><th>Evidence</th></tr>
+    <tr><td>The adapter is inert by default</td><td><code>ApiAdapterStub()</code> refuses before it stats a cache file — an <code>ExplodingCache</code> double proves the opt-in gate runs first</td></tr>
+    <tr><td>Dry-run is the default even after opting in</td><td><code>ApiGuard(enabled=True).dry_run is True</code>; the transport double records 0 calls</td></tr>
+    <tr><td>The max-cost guard blocks an over-budget run</td><td>refused <strong>before</strong> the transport: 0 calls, not <em>n</em> − 1. Cumulative: a $0.30 ceiling affords exactly two $0.15 calls, and the third refuses</td></tr>
+    <tr><td>The cache prevents a second call</td><td>second <code>generate()</code> → 0 additional calls, byte-identical record, ledger unchanged</td></tr>
+    <tr><td>Nothing performs network I/O</td><td>outbound TCP disabled for all <strong>849</strong> tests; no package module imports a network client at import time (asserted via <code>ast</code> over the source)</td></tr>
+    <tr><td>Prices cannot silently authorize spend</td><td>an unverified <code>PriceList</code> refuses on the spend path; the committed example ships <code>verified: false</code></td></tr>
+    <tr><td>The estimator is shared with the cost evaluator</td><td><code>evaluators.cost.COST_DECIMALS is pricing.COST_DECIMALS</code>, likewise for the comparison engine and the executor</td></tr>
+  </table>
+  <p>The estimator moved into <code>pricing.py</code> — a scored path — so the
+  load-bearing result is that <strong>nothing downstream changed</strong>:
+  <code>sha256(run.jsonl)</code> for the smoke baseline is still
+  <code>ee23bfde…</code>, the value committed at Milestone 4; the comparison still
+  detects the same six clusters; the committed example report regenerates
+  byte-identically. Two adversarial checks were run rather than described: removing
+  <code>ledger.check(...)</code> from the ladder fails 5 tests (including the one
+  asserting the ceiling is checked <em>before</em> the transport is looked for);
+  replacing the cache lookup with <code>entry = None</code> fails 6.</p>
+
   <h2>Test status</h2>
-  <p><code>python3 -m pytest -q</code> → <strong>577 passed</strong>, CPU-only and
+  <p><code>python3 -m pytest -q</code> → <strong>849 passed</strong>, CPU-only and
   offline (6 scaffold + 8 smoke + 54 schema + 25 fixtures + 46 adapters +
-  51 executor + 155 evaluators + 96 comparison + 66 reports + 70 observability).</p>
+  51 executor + 155 evaluators + 96 comparison + 67 reports + 70 observability +
+  73 redaction + 101 integration contracts + 97 API cost guard).</p>
+  <p>Offline is enforced, not assumed: an autouse fixture in
+  <code>conftest.py</code> disables <code>socket.socket.connect</code>,
+  <code>connect_ex</code> and <code>socket.create_connection</code> for
+  <strong>every</strong> test in the repository, and one test asserts that fixture is
+  armed.</p>
 
   <h2>What is not claimed</h2>
   <ul>

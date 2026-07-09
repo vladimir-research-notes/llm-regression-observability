@@ -2,7 +2,7 @@
 
 ``cost_estimate_usd`` is an **estimate, never a bill**. It is produced upstream by
 the run executor from a transparent char-based token estimator (``tokens ≈
-chars / 4``) times a synthetic price list (``executor.SYNTHETIC_COST_MODEL``:
+chars / 4``) times a synthetic price list (``pricing.SYNTHETIC_COST_MODEL``:
 $0.003 / $0.015 per 1k input / output tokens — plausible in order of magnitude,
 not any vendor's pricing). Nothing in this repository calls a paid API.
 
@@ -12,6 +12,11 @@ a reason: comparing a baseline priced under one model against a candidate priced
 under another would report a `cost_regression` that is an artifact of two price
 lists, not of token growth. Scoring a recorded value keeps the estimator in one
 place and keeps the evaluator honest about what it is reading.
+
+That one place is :mod:`..pricing`, which also supplies :data:`COST_DECIMALS`
+(re-exported here for the callers that import it from this module). Since
+Milestone 11 the same module prices the guarded API adapter's cost ceiling, so a
+number this evaluator scores and a number that guard enforces cannot drift apart.
 
 The comparison engine flags ``cost_regression`` on the **suite total**, not on a
 single case: per-case cost is small enough that rounding dominates, and a change
@@ -24,14 +29,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from ..pricing import COST_DECIMALS
 from ..schemas import EvalCase, MetricResult, RunRecord
 from .base import metric
 
 __all__ = ["COST_DECIMALS", "CostStats", "cost_stats", "evaluate"]
-
-#: Cost is rounded to this many decimals, matching ``executor.COST_DECIMALS``, so
-#: a total scored here equals the total the run artifact reports.
-COST_DECIMALS = 8
 
 
 @dataclass(frozen=True)

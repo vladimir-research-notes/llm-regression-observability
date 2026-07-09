@@ -18,6 +18,7 @@
     <a href="regression-categories.html">Regression categories</a>
     <a href="example-comparison.html">Example comparison</a>
     <a href="integration-contracts.html">Integration contracts</a>
+    <a href="cost-guard.html">Cost guard</a>
     <a href="results.html">Results</a>
     <a href="milestones.html">Milestones</a>
     <a href="limitations.html" class="active">Limitations</a>
@@ -50,6 +51,27 @@
   <h2>Estimated, not measured, cost</h2>
   <p>Token counts use a transparent char-based estimator and a fixture price
   table. Costs are estimates for relative comparison, not bills.</p>
+
+  <h2>A cost ceiling is only as good as its price list</h2>
+  <p>The <a href="cost-guard.html">max-cost guard</a> enforces its ceiling against
+  <code>chars / 4</code> tokens times prices an <em>operator supplied</em>. If the
+  price list is wrong, the ceiling is wrong by the same factor, and nothing here can
+  detect that — this repository has no network and cannot look up a price. The
+  mitigation is provenance, not verification: a <code>PriceList</code> carries
+  <code>verified</code> and <code>priced_at</code>, and the spend path refuses an
+  unverified list. That converts a silent failure into an operator decision. It does
+  not make the estimate correct. <code>allow_unverified_pricing</code> remains a real
+  escape hatch.</p>
+
+  <h2>The paid-API transport is untested by construction</h2>
+  <p><code>adapters/api_transport.py</code> has <strong>no test coverage and never
+  runs in CI</strong>, because running it would cost money. Its request/response
+  mapping is written from the SDK's documented shape and has never been executed
+  against a live response. Nothing else imports it and the guarded adapter refuses a
+  live call without it, so the absence is contained rather than load-bearing — but it
+  is an absence. Relatedly, the repository-wide network block patches the
+  <code>socket</code> module: the guarantee is "no test opens a TCP connection through
+  the standard library", not "no test can possibly emit a packet".</p>
 
   <h2>Recorded, not measured, latency</h2>
   <p><code>latency_ms</code> is a value the trace reports; the executor never

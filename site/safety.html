@@ -18,6 +18,7 @@
     <a href="regression-categories.html">Regression categories</a>
     <a href="example-comparison.html">Example comparison</a>
     <a href="integration-contracts.html">Integration contracts</a>
+    <a href="cost-guard.html">Cost guard</a>
     <a href="results.html">Results</a>
     <a href="milestones.html">Milestones</a>
     <a href="limitations.html">Limitations</a>
@@ -137,10 +138,26 @@ llmreg scan-secrets [PATH]                # the same scan, from the CLI</code></
   reports <strong>0 findings</strong> on this repository.</p>
 
   <h2>Optional paid-API mode</h2>
-  <p>No paid API is used by default or in any test. If the optional API adapter is
-  enabled (Milestone 11) it is gated by dry-run mode, a token/cost estimator, a
-  hard max-cost guard, a response cache, and explicit opt-in. Real API responses
-  are never committed.</p>
+  <p><strong>No paid API is used by default or in any test</strong>, and no CLI
+  subcommand in this repository can spend money. The package contains no network
+  client: <code>anthropic</code> is not a dependency, nothing imports it, and
+  <code>tests/test_api_stub.py</code> asserts that by parsing the package's own
+  source with <code>ast</code> — a runtime check would only see the imports that
+  happened to run. Offline is enforced rather than assumed: an autouse fixture in
+  <code>conftest.py</code> disables outbound TCP for all 849 tests.</p>
+  <p>The guarded adapter passes every call through seven gates in a fixed order —
+  <strong>explicit opt-in</strong> (first, so a disabled adapter does not even
+  <code>stat</code> a file), <strong>response cache</strong> (a hit spends nothing
+  and consumes no budget), <strong>token/cost estimator</strong> (an unpriced model
+  refuses rather than defaulting), <strong>dry-run mode</strong> (the default, even
+  once opted in), <strong>verified pricing</strong> (a ceiling over unchecked prices
+  is refused), <strong>hard max-cost guard</strong> (refuses <em>before</em> the
+  transport, cumulatively, and never truncates the request to fit a budget), and
+  <strong>transport</strong> (absent by default).</p>
+  <p>Credentials are never read, stored, logged, or cached by this package: the
+  reference transport defers to the provider SDK's own key resolution. The response
+  cache (<code>.api_cache/</code>) is gitignored. Real API responses are never
+  committed. Full reasoning on the <a href="cost-guard.html">Cost guard</a> page.</p>
 
   <h2>Honest framing</h2>
   <p>Where a metric is approximate (cost estimation) or a placeholder (explanation

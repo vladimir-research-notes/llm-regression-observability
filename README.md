@@ -101,9 +101,11 @@ honest by a test that regenerates it from the fixtures.
 - **Dependency-free core** — Python 3.12 standard library only. `pydantic` /
   `pandas` are optional and never required for tests.
 - **Deterministic** — same inputs produce byte-identical outputs.
-- Any optional paid-API adapter is disabled by default and gated by dry-run
-  mode, a token/cost estimator, a hard max-cost guard, a response cache, and
-  explicit opt-in.
+- The optional paid-API adapter is disabled by default and gated by dry-run mode,
+  a token/cost estimator, a hard max-cost guard, a response cache, and explicit
+  opt-in. **No CLI subcommand can spend money**, the package ships no network
+  client, and an autouse fixture disables outbound TCP for every test. See
+  [`docs/API_ADAPTER.md`](docs/API_ADAPTER.md).
 
 ## Repository map
 

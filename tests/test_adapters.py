@@ -466,7 +466,11 @@ def test_scripted_candidate_differs_from_recorded_baseline() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# ApiAdapterStub — inert by default.
+# ApiAdapterStub — inert by default. Milestone 11 built out the guards behind the
+# opt-in; the contract asserted *here* is the one every other adapter relies on:
+# constructing the API adapter the ordinary way reaches nothing. The guard ladder
+# itself (dry-run, estimator, ceiling, cache, transport) is tested in
+# tests/test_api_stub.py.
 # --------------------------------------------------------------------------- #
 
 
@@ -477,10 +481,14 @@ def test_api_stub_disabled_by_default() -> None:
         stub.generate(_case("c1"), _ctx())
 
 
-def test_api_stub_enabled_still_refuses_until_milestone_11() -> None:
-    stub = ApiAdapterStub(enabled=True)
-    with pytest.raises(NotImplementedError, match="Milestone 11"):
-        stub.generate(_case("c1"), _ctx())
+def test_api_stub_default_construction_touches_nothing() -> None:
+    # No cache directory, no transport, no budget: three independent reasons a
+    # default-constructed adapter cannot spend.
+    stub = ApiAdapterStub()
+    assert stub.cache.enabled is False
+    assert stub.transport is None
+    assert stub.ledger.ceiling_usd == 0.0
+    assert stub.guard.dry_run is True
 
 
 def test_api_stub_disabled_error_is_adapter_error() -> None:

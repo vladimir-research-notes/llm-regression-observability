@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..evaluators import evaluate_case, metrics_by_name
+from ..pricing import COST_DECIMALS
 from ..schemas import EvalCase, MetricResult, RunRecord
 
 __all__ = [
@@ -54,8 +55,8 @@ __all__ = [
 #: Deltas are rounded to this many decimals, matching ``evaluators.VALUE_DECIMALS``.
 DELTA_DECIMALS = 6
 
-#: Cost deltas need finer resolution; matches ``executor.COST_DECIMALS``.
-COST_DECIMALS = 8
+# ``COST_DECIMALS`` (cost deltas need finer resolution) is imported from ``..pricing``
+# and re-exported here: one estimator, one rounding, no copy to keep in sync.
 
 #: ``RunRecord`` fields that describe *what the application did*. Only these are
 #: compared into ``ComparisonRecord.changed_fields``.

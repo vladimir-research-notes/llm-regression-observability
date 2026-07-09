@@ -18,6 +18,7 @@
     <a href="regression-categories.html">Regression categories</a>
     <a href="example-comparison.html">Example comparison</a>
     <a href="integration-contracts.html" class="active">Integration contracts</a>
+    <a href="cost-guard.html">Cost guard</a>
     <a href="results.html">Results</a>
     <a href="milestones.html">Milestones</a>
     <a href="limitations.html">Limitations</a>
@@ -33,7 +34,7 @@
   runs over the result <strong>unchanged</strong>. Adding a source is: write a
   <code>TraceImporter</code>, register it. Nothing else moves.</p>
 
-  <p><span class="status done">status: Milestone 10 complete — a versioned envelope (contract <code>1.0</code>), six importers, <code>llmreg import-trace</code> / <code>llmreg export-run</code>, and an end-to-end demonstration in which two imported code-agent sessions are compared by the unchanged engine (<strong>2/2 injected defects detected, 0 false positives</strong> on the 2 controls); 100 tests in <code>tests/test_integration_contracts.py</code></span></p>
+  <p><span class="status done">status: Milestone 10 complete — a versioned envelope (contract <code>1.0</code>), six importers, <code>llmreg import-trace</code> / <code>llmreg export-run</code>, and an end-to-end demonstration in which two imported code-agent sessions are compared by the unchanged engine (<strong>2/2 injected defects detected, 0 false positives</strong> on the 2 controls); 101 tests in <code>tests/test_integration_contracts.py</code></span></p>
 
   <div class="callout"><strong>No sibling repository is required, present, or
   read.</strong> The five external trace shapes below are <em>declared by this
@@ -245,7 +246,7 @@ llmreg report --comparison results/comparisons/external-external-baseline-vs-ext
   <p><strong>Implemented (Milestone 10).</strong> The envelope, the six importers,
   <code>llmreg import-trace</code>, <code>llmreg export-run</code>, the
   <code>external</code> suite, and the end-to-end demonstration all exist.
-  <code>python3 -m pytest -q</code> → <strong>752 passed</strong>, of which 100 are
+  <code>python3 -m pytest -q</code> → <strong>849 passed</strong>, of which 101 are
   in <code>tests/test_integration_contracts.py</code>.</p>
 
   <h2>Relevant files</h2>
@@ -258,7 +259,7 @@ llmreg report --comparison results/comparisons/external-external-baseline-vs-ext
     <li><code>data/external/&lt;source&gt;/*.json</code> — committed synthetic examples</li>
     <li><code>evals/suites/external.yaml</code> — the four-case suite an imported trace answers</li>
     <li><code>scripts/09_import_external_trace.py</code> — the end-to-end demonstration</li>
-    <li><code>tests/test_integration_contracts.py</code> — 100 tests</li>
+    <li><code>tests/test_integration_contracts.py</code> — 101 tests</li>
     <li><code>docs/INTEGRATION_CONTRACTS.md</code> — the full mapping tables</li>
   </ul>
 

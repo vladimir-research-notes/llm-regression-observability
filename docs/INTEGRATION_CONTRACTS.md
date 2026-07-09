@@ -3,7 +3,7 @@
 > **Status: implemented (Milestone 10).** The envelope, the six importers, the
 > `llmreg import-trace` / `llmreg export-run` commands, and the end-to-end
 > demonstration all exist and are exercised by
-> `tests/test_integration_contracts.py` (100 tests).
+> `tests/test_integration_contracts.py` (101 tests).
 >
 > **No sibling repository is required, present, or read.** The five external trace
 > shapes below are *declared by this repository* and pinned against committed
@@ -397,7 +397,7 @@ case is where `expected_properties`, the JSON schema and the allow-list live.
 | `data/external/<source>/*.json` | committed synthetic examples |
 | `evals/suites/external.yaml` | the four-case suite an imported trace answers |
 | `scripts/09_import_external_trace.py` | the end-to-end demonstration |
-| `tests/test_integration_contracts.py` | 100 tests; the validation command below |
+| `tests/test_integration_contracts.py` | 101 tests; the validation command below |
 
 ## Validate
 

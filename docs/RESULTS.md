@@ -1,9 +1,11 @@
 # Results
 
 > **Status: the detector works, on synthetic ground truth, and reports what it
-> found.** Milestones 4–9 are implemented, so the run artifacts, the per-case
+> found.** Milestones 4–11 are implemented, so the run artifacts, the per-case
 > scores, the **regression flags**, the **rendered report**, the **spans and
-> suite metrics**, and the **redaction** in front of all of them below are real and
+> suite metrics**, the **redaction** in front of all of them, the **import
+> contracts** traces arrive through, and the **cost guard** in front of the one
+> path that could spend money below are real and
 > reproducible. On the six committed fixture suites the comparison engine detects
 > **18 of 18 injected defects** with the category and severity their ground truth
 > annotates, and raises **0 false positives** on the 8 negative controls.
@@ -341,9 +343,14 @@ committed fixture records against the free text of the record it came from.
 
 ## Test status
 
-`python3 -m pytest -q` → **577 passed**, CPU-only and offline (6 scaffold +
+`python3 -m pytest -q` → **849 passed**, CPU-only and offline (6 scaffold +
 8 smoke + 54 schema + 25 fixtures + 46 adapters + 51 executor + 155 evaluators +
-96 comparison + 66 reports + 70 observability).
+96 comparison + 67 reports + 70 observability + 73 redaction + 101 integration
+contracts + 97 API cost guard).
+
+Offline is enforced, not assumed: an autouse fixture in `conftest.py` disables
+`socket.socket.connect`, `connect_ex` and `socket.create_connection` for **every**
+test in the repository, and one test asserts that fixture is armed.
 
 ## What is not claimed
 
@@ -383,11 +390,42 @@ only claim: a clean record stays `clean`; a credential in `final_output` yields
 a join key — yields `flagged` and the executor **refuses the run**, naming the field
 and the pattern without echoing the value.
 
+## The cost guard (Milestone 11)
+
+The one code path that *could* cost money, and the seven gates in front of it. The
+guards are the deliverable; the network call is not. Full reasoning in
+[`API_ADAPTER.md`](API_ADAPTER.md).
+
+| Claim | Evidence |
+| --- | --- |
+| The adapter is inert by default | `ApiAdapterStub()` refuses before it stats a cache file (an `ExplodingCache` proves the opt-in gate runs first) |
+| Dry-run is the default even after opting in | `ApiGuard(enabled=True).dry_run is True`; the transport double records 0 calls |
+| The max-cost guard blocks an over-budget run | refused **before** the transport: 0 calls, not *n* − 1. Cumulative across a suite: a $0.30 ceiling affords exactly two $0.15 calls, and the third refuses |
+| The cache prevents a second call | second `generate()` → 0 additional calls, byte-identical record, ledger unchanged |
+| Nothing performs network I/O | outbound TCP disabled for all **849** tests; no package module imports a network client at import time (asserted via `ast` over the source) |
+| Prices cannot silently authorize spend | an unverified `PriceList` refuses on the spend path; the committed example ships `verified: false` |
+| The estimator is shared with the cost evaluator | `evaluators.cost.COST_DECIMALS is pricing.COST_DECIMALS`, and likewise for the comparison engine and the executor |
+
+The estimator moved into `pricing.py` — a scored path — so the load-bearing
+result is that **nothing downstream changed**: `sha256(run.jsonl)` for the smoke
+baseline is still `ee23bfde…`, the value committed at Milestone 4; the comparison
+still detects the same six clusters; the committed example report regenerates
+byte-identically.
+
+Two adversarial checks were run during development rather than described:
+removing `ledger.check(...)` from the ladder fails 5 tests (including the one
+asserting the ceiling is checked *before* the transport is looked for); replacing
+the cache lookup with `entry = None` fails 6.
+
+What the guard cannot do: the ceiling is enforced against *estimated* cost, and
+the estimator is `chars / 4`. A supplied price list that is wrong makes the ceiling
+wrong by the same factor. `verified` / `priced_at` make that an operator decision
+rather than a silent one; they cannot check a price.
+
 ## What will be reported here next
 
-Milestone 10 defines the integration contracts: trace import/export formats so a
-sibling repository can hand this one a run and get a comparison back. An imported
-trace is the first thing that can legitimately arrive `flagged`.
+Milestone 12 brings the README, this document, and the website to portfolio
+quality against the numbers above. Milestone 13 runs every gate end to end.
 
 ## Reproduction
 
