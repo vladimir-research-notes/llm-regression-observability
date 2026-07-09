@@ -41,6 +41,17 @@ every record, which is how two runs can be priced under one model regardless of
 what their adapters claimed. :class:`RunMeta` counts how many records each path
 touched, so an artifact never hides which numbers were derived.
 
+**Where does redaction happen?** Here, and before anything else reads the record
+(``docs/milestones/09-redaction.md``). Not in :func:`write_run`: ``run_meta.json``
+publishes ``records_sha256`` over ``run.jsonl``, so a redactor that ran at write
+time would hash text that no longer exists. Redacting inside :func:`execute_suite`
+also means ``output_tokens_estimate`` is an estimate of the text actually persisted,
+and ``redaction_status`` is *derived* by :func:`~.traces.redaction.redact_record`
+rather than believed from the adapter that set it. A record whose secret sits in an
+identity field (a join key the redactor will not rewrite) comes back ``flagged``,
+and the run is **refused** — an :class:`ExecutorError` naming the field and the
+pattern, never the value.
+
 No clock, no RNG, no network. Two runs on the same suite, adapter, and fixtures
 produce byte-identical artifacts, modulo an explicit ``run_id``.
 """
@@ -68,6 +79,7 @@ from .adapters import (
 )
 from .datasets import load_eval_suite, repo_root
 from .schemas import ErrorRecord, EvalCase, EvalSuite, RunRecord, Schema
+from .traces.redaction import REDACTED, RecordRedaction, redact_record
 from .traces.storage import (
     file_sha256,
     render_jsonl,
@@ -211,6 +223,9 @@ class RunMeta(Schema):
     infra_error_count: int = 0
     tokens_estimated_cases: int = 0
     cost_estimated_cases: int = 0
+    #: Records the redactor masked something in. ``flagged`` records never reach a
+    #: file — the run is refused — so there is no counter for them here.
+    redacted_case_count: int = 0
     identity_overrides: list[str] = field(default_factory=list)
     cost_model: CostModel = field(default_factory=CostModel)
     records_sha256: str = ""
@@ -399,6 +414,20 @@ def _restamp(record: RunRecord, config: RunConfig, run_id: str) -> RunRecord:
     return dataclasses.replace(record, **updates)
 
 
+def _redact(record: RunRecord) -> RecordRedaction:
+    """Mask the record's content and derive its ``redaction_status``.
+
+    A ``flagged`` record carries a credential-like string in a join key. There is no
+    safe repair: masking the key corrupts the artifact, writing it leaks the secret.
+    So the run stops, and the message names the field and the pattern but never the
+    value.
+    """
+    outcome = redact_record(record)
+    if outcome.flagged:
+        raise ExecutorError(outcome.describe())
+    return outcome
+
+
 def _summarize(
     records: list[RunRecord],
     accounts: list[_Accounting],
@@ -437,6 +466,7 @@ def _summarize(
         infra_error_count=sum(1 for e in errors if e.origin == "infra"),
         tokens_estimated_cases=sum(1 for a in accounts if a.tokens_estimated),
         cost_estimated_cases=sum(1 for a in accounts if a.cost_estimated),
+        redacted_case_count=sum(1 for r in records if r.redaction_status == REDACTED),
         identity_overrides=config.identity_overrides(),
         cost_model=config.cost_model,
         records_sha256=sha256_hex(render_jsonl(records)),
@@ -477,6 +507,9 @@ def execute_suite(
             record = _adapter_failure_record(case, config, run_id, exc)
 
         record = _restamp(record, config, run_id)
+        # Before accounting, so token estimates describe the text that is persisted,
+        # and before `_summarize`, so `records_sha256` digests the redacted bytes.
+        record = _redact(record).record
         account = _account(record, case, config)
         record = dataclasses.replace(
             record,

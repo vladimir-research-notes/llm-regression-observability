@@ -51,6 +51,19 @@ errors: list[ErrorRecord]
 redaction_status: str                 # clean | redacted | flagged
 ```
 
+`redaction_status` is **derived** by `traces/redaction.py`, never believed from the
+adapter that produced the record. The values form a lattice, `clean < redacted <
+flagged`, and redaction takes the maximum of what it found and what the record already
+claimed — so the status can only escalate, and redacting twice changes nothing.
+`clean` means no rule fired; `redacted` means a rule fired in a content field
+(`final_output`, `parsed_output`, tool-call `arguments`, an `error`, a `snippet`, a
+`claim`, an error `message`) and was masked with `[REDACTED:<rule>]`; `flagged` means
+a credential-like string sits in an **identity field** — `run_id`, `case_id`,
+`model_id`, a `tool_calls[].name`, a `retrieval_sources[].source_id`, an
+`errors[].kind` — which the redactor will not rewrite because the pipeline joins on
+it. A `flagged` run is refused, so the value never appears in a file this project
+wrote; it exists for traces imported from elsewhere.
+
 ### ToolCallTrace
 
 ```
@@ -357,6 +370,10 @@ were incomplete or infra-attributed, and two digests (`spans_sha256`,
   `\n` line ending including a trailing one.
 - **No ambient values.** Timestamps and seeds come from inputs, never from the
   clock or RNG at write time.
-- **Redaction before persistence.** Any text field that could contain a
-  secret/PII-like string passes through the redactor (Milestone 9) before it is
-  written to `results/` or a report.
+- **Redaction before persistence.** Every content field of a `RunRecord` passes
+  through `traces/redaction.py` inside `execute_suite` — before tokens are accounted
+  and before `run.jsonl` is hashed — so `records_sha256` digests the redacted bytes.
+  Identity fields are scanned, never rewritten: a credential-like string in one of
+  them sets `redaction_status="flagged"` and the run is refused. Reports mask their
+  free text on the way in and gate the rendered document on the way out. See
+  [`SAFETY.md`](SAFETY.md).

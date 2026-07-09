@@ -42,37 +42,98 @@
     whether a model should comply with anything harmful.</li>
   </ul>
 
-  <h2>Redaction: the gate (Milestone 7) and the mask (Milestone 9)</h2>
-  <p>Two mechanisms, built in that order on purpose.</p>
-  <p><strong>The gate exists now.</strong>
-  <code>reports/base.py::assert_redaction_clean</code> scans the fully rendered
-  report immediately before the bytes hit the disk, and is
+  <h2>Redaction: the mask and the gate</h2>
+  <p><span class="status done">status: Milestone 9 complete — 12 rules in two tiers;
+  redaction runs before the executor hashes a run, before the report renders, and
+  before the span writer writes; 52/52 committed fixture records pass through
+  unchanged; 73 tests</span></p>
+  <p>Two mechanisms, <strong>one pattern table</strong>.
+  <code>traces/redaction.py</code> is the single definition of "credential-like" in
+  this repository; the report gate, <code>llmreg validate-fixtures</code>, the span
+  writer and the trace writer all read it from there. A second copy of a pattern table
+  is a false sense of safety, because the copy that misses a pattern is the one that
+  runs.</p>
+  <p><strong>The mask.</strong> <code>redact_text()</code> replaces a match with
+  <code>[REDACTED:&lt;rule&gt;]</code>. It runs on every content field of a
+  <code>RunRecord</code> inside <code>execute_suite</code> — before tokens are
+  accounted and before <code>run.jsonl</code> is hashed, so
+  <code>records_sha256</code> digests the redacted bytes — and on every free-text field
+  the report generator copies out of a comparison artifact. The placeholder matches no
+  rule, so redaction is idempotent.</p>
+  <p><strong>The gate.</strong> <code>assert_redaction_clean</code> scans the fully
+  rendered report immediately before the bytes hit the disk, and is
   <strong>fail-closed</strong>: a credential-like string that reached the document
   means the report is <em>refused</em>, not written. The error names the pattern and
   the line and never echoes the value — an error message is a place secrets leak too.
   <code>llmreg report --dry-run</code> runs the same gate, so a dry run cannot pass
-  where a real write would refuse. The patterns it recognizes today (shared with
-  <code>llmreg validate-fixtures</code>) are provider-style API keys, bearer tokens,
-  and private-key headers.</p>
-  <p><strong>The mask arrives with Milestone 9.</strong>
-  <code>traces/redaction.py</code> will supply a redactor that <em>masks</em> rather
-  than refuses — the patterns above plus generic high-entropy tokens,
-  <code>Authorization</code> headers and email addresses — and will set
-  <code>redaction_status</code> (clean / redacted / flagged) on each
-  <code>RunRecord</code> before persistence. It plugs into the <code>Redactor</code>
-  seam that <code>reports.build_report()</code> already takes; the gate stays exactly
-  where it is, as the last assertion. Milestone 7's default redactor masks nothing,
-  which is precisely why the gate is fail-closed rather than advisory.</p>
-  <p>Independently of both: a comparison artifact carries no model-generated prose to
-  begin with. Flag explanations, per-case summaries and cluster labels are authored
-  by the rules from metric names, numbers, tool names and property names — never by
-  copying a model's output. The report renders only those, so the gate is a backstop,
-  not the only line of defence.</p>
+  where a real write would refuse. <code>write_spans</code> gates
+  <code>spans.jsonl</code> the same way.</p>
+  <p>The two are not redundant. The mask sees only <em>free text</em>, because
+  identifiers — case ids, run ids, metric names, tool names — are join keys, and
+  rewriting one would corrupt the artifact it claims to protect. The gate reads the
+  whole document, identifiers included. <strong>A secret in an explanation is masked;
+  a secret in a run id is refused.</strong></p>
+
+  <h3>Two tiers: refuse on evidence, mask on suspicion</h3>
+  <table>
+    <thead><tr><th>Tier</th><th>Rules</th><th>Behavior</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>certain</code></td>
+        <td>provider key prefixes (<code>sk-…</code>, <code>AKIA…</code>,
+        <code>gh[pousr]_…</code>, <code>AIza…</code>, <code>xox[baprs]-…</code>), JWT,
+        private-key header, <code>Bearer …</code>, <code>Authorization: …</code></td>
+        <td>mask, <strong>and</strong> refuse an artifact that still contains one</td>
+      </tr>
+      <tr>
+        <td><code>heuristic</code></td>
+        <td>credential-named assignment (<code>api_key=…</code>), email address,
+        generic high-entropy token</td>
+        <td>mask only — <strong>never</strong> blocks an artifact</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>A heuristic rule can fire on legitimate text, and a false-positive refusal is a
+  denial of service on your own report. A false-positive mask costs one mangled string,
+  and <code>redaction_status</code> records that it happened. The generic-token rule
+  additionally requires 24+ characters, mixed character classes, and entropy above a
+  prose floor — the character-class filter, not the entropy floor, is what keeps it off
+  the SHA-256 digest this project writes into every <code>run_meta.json</code>.</p>
+
+  <h3><code>redaction_status</code></h3>
+  <p>Derived by the redactor, never believed from an adapter. The values form a lattice
+  — <code>clean &lt; redacted &lt; flagged</code> — and redaction takes the maximum of
+  what it found and what the record already claimed, so the status can only escalate
+  and redacting twice changes nothing.</p>
+  <ul>
+    <li><code>clean</code> — no rule fired.</li>
+    <li><code>redacted</code> — a rule fired in a content field and was masked.</li>
+    <li><code>flagged</code> — a certain-tier rule fired in an <strong>identity
+    field</strong> (a join key the redactor will not rewrite). The executor
+    <strong>refuses the run</strong>, naming the field and the pattern. A
+    <code>flagged</code> record therefore never appears in a file this project wrote;
+    it is reachable only on a trace imported from elsewhere.</li>
+  </ul>
+  <p>Independently of all of this: a comparison artifact carries no model-generated
+  prose to begin with. Flag explanations, per-case summaries and cluster labels are
+  authored by the rules from metric names, numbers, tool names and property names —
+  never by copying a model's output. The report renders only those, so the gate is a
+  backstop, not the only line of defence.</p>
 
   <h2>Never committed</h2>
   <p>Secrets, API keys, real API responses, private data, <code>.env</code> files,
   large logs, response caches, model weights, and <code>.claude/settings*.json</code>
-  are all git-ignored, and a repository-hygiene check scans for them.</p>
+  are all git-ignored. The repository-hygiene check scans the committed tree for what
+  slipped through anyway:</p>
+  <pre><code>python3 scripts/08_check_repo_hygiene.py   # exits 1 on any finding
+llmreg scan-secrets [PATH]                # the same scan, from the CLI</code></pre>
+  <p>It applies the <strong>certain</strong> tier only. The heuristic tier would flag
+  every SHA-256 digest in <code>docs/</code> and every author email in
+  <code>pyproject.toml</code>, and a hygiene check that cries wolf is a hygiene check
+  that gets skipped. A file that must legitimately name a credential shape — a test
+  asserting the scanner works — marks the line with <code>redaction:allow</code>. The
+  scan reports the file, the line and the pattern name, never the matched value. It
+  reports <strong>0 findings</strong> on this repository.</p>
 
   <h2>Optional paid-API mode</h2>
   <p>No paid API is used by default or in any test. If the optional API adapter is

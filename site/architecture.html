@@ -57,11 +57,20 @@ refusal, error        │  aggregate by suite + category           │      comp
                       └────────────────┬────────────────────────┘
                                        │
 reports (M7)          ┌────────────────▼────────────────────────┐
-redaction gate (M7)   │  REPORT GENERATOR (M7)                   │──▶ results/reports/*.md, *.html
-redaction mask (M9)   │  artifacts → ReportModel → md / html     │
-observability (M8)    │  headline, per-category, worst cases,     │
+redaction (M9)        │  REPORT GENERATOR (M7)                   │──▶ results/reports/*.md, *.html
+observability (M8)    │  artifacts → ReportModel → md / html     │
+                      │  mask free text in, gate document out     │
+                      │  headline, per-category, worst cases,     │
                       │  examples, latency/cost, what was withheld│
                       └─────────────────────────────────────────┘</code></pre>
+
+  <h3>Where redaction sits (M9)</h3>
+  <p><code>traces/redaction.py</code> is one pattern table read by four callers, and it
+  runs in front of every write — never after one.</p>
+  <pre><code>run.jsonl     mask content, derive redaction_status, refuse if flagged  (executor, before hashing)
+spans.jsonl   gate only — every string in a span is a join key          (write_spans)
+report.md     mask free text in, gate the rendered document out         (build_report + write_report)
+source tree   scan, certain tier only                                   (llmreg scan-secrets)</code></pre>
 
   <h3>Why the report reads only the artifacts</h3>
   <p>The report generator opens <code>comparison.jsonl</code>,

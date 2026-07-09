@@ -10,9 +10,9 @@ exercised end to end:
   so the CLI itself is testable and self-contained.
 
 Milestone 2 adds ``validate-fixtures``; Milestone 4 adds ``run-suite``; Milestone
-6 adds ``compare``; Milestone 7 adds ``report``; Milestone 8 adds ``aggregate``.
-This module stays dependency-free and calls no network, clock, or randomness in
-any scored path.
+6 adds ``compare``; Milestone 7 adds ``report``; Milestone 8 adds ``aggregate``;
+Milestone 9 adds ``scan-secrets``. This module stays dependency-free and calls no
+network, clock, or randomness in any scored path.
 """
 
 from __future__ import annotations
@@ -124,6 +124,33 @@ def _cmd_validate_fixtures(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_scan_secrets(args: argparse.Namespace) -> int:
+    """Repository hygiene: does any committed file hold a credential-like string?"""
+    # Imported lazily so ``version`` / ``check-env`` do not pay for it.
+    from .datasets import repo_root
+    from .traces.redaction import ALLOW_MARKER, CERTAIN_RULES, scan_tree
+
+    root = Path(args.path) if args.path else repo_root()
+    if not root.is_dir():
+        print(f"error            : {root} is not a directory")
+        print("result           : FAIL")
+        return 1
+
+    findings = scan_tree(root)
+    print(f"root             : {root}")
+    print(f"rules            : {len(CERTAIN_RULES)} certain-tier credential patterns")
+    print(f"allow marker     : a line containing '{ALLOW_MARKER}' is skipped")
+    if findings:
+        print(f"findings         : {len(findings)}")
+        for finding in findings:
+            print(f"  - {finding.render()}")
+        print("result           : FAIL")
+        return 1
+    print("findings         : 0 (no credential-like pattern in a committed file)")
+    print("result           : PASS")
+    return 0
+
+
 def _cmd_run_suite(args: argparse.Namespace) -> int:
     # Imported lazily so the cheap subcommands do not pay for the adapters.
     from .executor import CostModel, ExecutorError, RunConfig, run_suite
@@ -172,6 +199,11 @@ def _cmd_run_suite(args: argparse.Namespace) -> int:
         f"({meta.cost_estimated_cases} estimated by executor)"
     )
     print(f"latency total    : {meta.latency_ms_total:.1f} ms (recorded, not measured)")
+    print(
+        f"redaction        : {meta.redacted_case_count} record(s) masked, "
+        f"{meta.case_count - meta.redacted_case_count} clean "
+        "(a flagged record refuses the run)"
+    )
     print(f"tool calls       : {meta.tool_call_count}")
     print(f"retrieval sources: {meta.retrieval_source_count}")
     print(
@@ -356,12 +388,19 @@ def _cmd_aggregate(args: argparse.Namespace) -> int:
     from .evaluators import EvaluatorError
     from .observability import ObservabilityError, aggregate_run_dir
     from .schemas import SchemaError
+    from .traces.redaction import RedactionError
 
     run_dir = Path(args.run)
     out_root = None if args.dry_run else Path(args.out)
     try:
         result = aggregate_run_dir(run_dir, out_root)
-    except (ObservabilityError, EvaluatorError, SchemaError, OSError) as exc:
+    except (
+        ObservabilityError,
+        EvaluatorError,
+        RedactionError,
+        SchemaError,
+        OSError,
+    ) as exc:
         print(f"error            : {exc}")
         print("result           : FAIL")
         return 1
@@ -460,6 +499,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="path to evals/fixtures (or the repo root); default: repo fixtures",
     )
     p_fixtures.set_defaults(func=_cmd_validate_fixtures)
+
+    p_scan = sub.add_parser(
+        "scan-secrets",
+        help="scan a source tree for accidentally committed credential-like strings",
+    )
+    p_scan.add_argument(
+        "path",
+        nargs="?",
+        default=None,
+        help="directory to scan; default: the repository root",
+    )
+    p_scan.set_defaults(func=_cmd_scan_secrets)
 
     p_run = sub.add_parser(
         "run-suite",

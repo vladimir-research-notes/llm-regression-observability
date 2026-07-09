@@ -6,25 +6,30 @@ with the other.
 **The redaction gate.** ``docs/PLAN.md`` §11 lists "redaction works and runs
 before reports are written" as a quality gate, and ``docs/milestones/07-reports.md``
 requires every string in a report to pass through redaction on its way out. The
-*masking* redactor is Milestone 9 (``traces/redaction.py``). What Milestone 7 owns
-is the seam and the enforcement:
+mechanism is a seam plus an enforcement, and Milestone 9 filled the seam:
 
 * :data:`Redactor` — the seam. :func:`build_report` takes one and applies it to
-  every free-text field it copies out of a comparison artifact. The default,
-  :func:`identity_redactor`, masks nothing.
+  every free-text field it copies out of a comparison artifact. The default is now
+  :func:`~..traces.redaction.redact_text`, which **masks**.
+  :func:`identity_redactor` (mask nothing) remains, and is what a test passes to
+  prove the gate below still holds on its own.
 * :func:`assert_redaction_clean` — the enforcement, and it is **fail-closed**. It
   runs on the fully rendered document immediately before the bytes hit the disk.
   A credential-like string that survived the redactor does not get written; it
   raises :class:`ReportError`.
 
-So today a report containing a secret is *refused*; after Milestone 9 wires a
-masking redactor into the seam it will be *cleaned*, and this gate stays exactly
-where it is as the last assertion. The gate never echoes what it found — it names
-the pattern and the line, because an error message is a place secrets leak too.
+The two are not redundant. The redactor sees only *free text* — flag explanations,
+per-case summaries, cluster labels — because identifiers (case ids, run ids, metric
+names) are join keys and rewriting one would corrupt the report it protects. The
+gate reads the whole rendered document, identifiers included, and refuses. So a
+secret in an explanation is *masked*; a secret in a run id is *refused*. The gate
+never echoes what it found — it names the pattern and the line, because an error
+message is a place secrets leak too.
 
-:data:`~..datasets.validation.SECRET_PATTERNS` is imported rather than restated;
-Milestone 9 moves that table to ``traces/redaction.py`` and both callers follow it
-there. One table, one definition of "credential-like".
+The gate refuses on the certain tier only (:data:`~..traces.redaction.CERTAIN_RULES`);
+heuristic rules mask but never block. See ``traces/redaction.py`` for why that
+asymmetry is deliberate. That module owns the one pattern table; nothing is restated
+here.
 
 **Formatting.** A number is rendered the same way in Markdown and in HTML, so the
 two documents never disagree about whether latency moved by ``+250.0 ms`` or
@@ -36,15 +41,15 @@ timestamp would make two reports of the same comparison differ byte for byte).
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
 
 from ..comparison.regression import REGRESSION_CATEGORIES, SEVERITY_ORDER
-from ..datasets.validation import SECRET_PATTERNS
+from ..traces.redaction import Redactor, assert_clean, redact_text, secret_findings
 
 __all__ = [
     "ReportError",
     "Redactor",
     "identity_redactor",
+    "masking_redactor",
     "secret_findings",
     "assert_redaction_clean",
     "CATEGORY_ORDER",
@@ -69,34 +74,18 @@ class ReportError(RuntimeError):
 # Redaction: the seam, and the gate
 # --------------------------------------------------------------------------- #
 
-#: A text-in, text-out masking function. Milestone 9 supplies the real one.
-Redactor = Callable[[str], str]
+#: The redactor the report generator uses unless a caller substitutes one.
+masking_redactor: Redactor = redact_text
 
 
 def identity_redactor(text: str) -> str:
-    """The default redactor: masks nothing.
+    """A redactor that masks nothing.
 
-    Milestone 7 does not own a masking implementation, and pretending otherwise
-    would be the kind of claim this repository does not make. The gate below is
-    what makes the default safe: nothing credential-like gets written either way,
-    it just raises instead of masking.
+    Retained after Milestone 9 for one reason: it is how a test asks "would the gate
+    have caught this on its own?". Passing it to :func:`build_report` disables the
+    mask and leaves only the fail-closed gate, which is the property under test.
     """
     return text
-
-
-def secret_findings(text: str) -> tuple[tuple[int, str], ...]:
-    """Every ``(line_number, pattern_name)`` where ``text`` looks credential-like.
-
-    The match itself is deliberately not returned. Callers report *that* a secret
-    is present and *where*; a caller that wanted the value would be reintroducing
-    the leak it is trying to prevent.
-    """
-    found: list[tuple[int, str]] = []
-    for lineno, line in enumerate(text.splitlines(), start=1):
-        found.extend(
-            (lineno, name) for name, pattern in SECRET_PATTERNS if pattern.search(line)
-        )
-    return tuple(found)
 
 
 def assert_redaction_clean(text: str, *, source: str = "report") -> None:
@@ -104,17 +93,11 @@ def assert_redaction_clean(text: str, *, source: str = "report") -> None:
 
     The last thing that runs before a report is written. Fail-closed on purpose:
     a report is the one artifact a human is expected to paste into a ticket, a
-    pull request, or a chat window.
+    pull request, or a chat window. Raises :class:`ReportError` rather than
+    :class:`~..traces.redaction.RedactionError` so the CLI's report path keeps one
+    error type for "this report cannot be produced".
     """
-    findings = secret_findings(text)
-    if not findings:
-        return
-    where = ", ".join(f"line {lineno} ({name})" for lineno, name in findings)
-    raise ReportError(
-        f"{source}: refusing to write a report with {len(findings)} "
-        f"unredacted credential-like string(s): {where}. "
-        "Pass a masking redactor (Milestone 9) or fix the source trace."
-    )
+    assert_clean(text, source=source, error=ReportError)
 
 
 # --------------------------------------------------------------------------- #

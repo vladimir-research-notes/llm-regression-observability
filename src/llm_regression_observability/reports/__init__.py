@@ -20,10 +20,12 @@ Four properties this package holds to:
 * **It can only say what the artifacts say.** The selection logic lives in one
   place (:mod:`.model`), so Markdown and HTML can never disagree, and neither can
   reach past ``comparison.jsonl`` for a fact.
-* **Nothing is written until it is redaction-clean.** :func:`write_report` runs
-  :func:`~.base.assert_redaction_clean` on the fully rendered document and raises
-  rather than emit a credential-like string. Milestone 9 supplies the masking
-  redactor that fits the :data:`~.base.Redactor` seam; the gate stays put.
+* **Nothing is written until it is redaction-clean.** Free text is masked on the way
+  into the :class:`~.model.ReportModel` by the Milestone 9 redactor, and
+  :func:`write_report` then runs :func:`~.base.assert_redaction_clean` on the fully
+  rendered document — identifiers included — and raises rather than emit a
+  credential-like string. Mask first, gate last; the gate is what makes the
+  guarantee, the mask is what keeps it from costing you the report.
 * **The silences are printed.** Unpaired cases, infra-attributed cases, and
   withheld flags get their own section. A clean headline over a comparison that
   could not look at half its cases is the failure mode this whole project exists
@@ -42,6 +44,7 @@ from .base import (
     ReportError,
     assert_redaction_clean,
     identity_redactor,
+    masking_redactor,
     secret_findings,
 )
 from .html import render_html
@@ -70,6 +73,7 @@ __all__ = [
     "ReportError",
     "Redactor",
     "identity_redactor",
+    "masking_redactor",
     "secret_findings",
     "assert_redaction_clean",
     # Model
@@ -179,7 +183,7 @@ def generate_report(
     *,
     formats: tuple[str, ...] = ("markdown",),
     top: int | None = DEFAULT_TOP,
-    redactor: Redactor = identity_redactor,
+    redactor: Redactor = masking_redactor,
 ) -> ReportResult:
     """Load a comparison directory, render it, and (unless ``out`` is ``None``)
     write one file per format. ``out=None`` is the dry-run path: everything is

@@ -23,9 +23,12 @@ no report at all. :func:`build_report` checks and raises :class:`ReportError`.
 **Free text passes through the redactor.** Every field this module copies out of a
 record that could conceivably carry trace-derived content — flag explanations,
 per-case summaries, cluster labels, comparability notes — goes through
-:data:`~.base.Redactor` on the way in. Identifiers (case ids, run ids, metric
-names) and numbers do not. The final rendered document is gated separately by
-:func:`~.base.assert_redaction_clean`, which is what actually makes the guarantee.
+:data:`~.base.Redactor` on the way in, and the default is now the masking redactor
+of Milestone 9. Identifiers (case ids, run ids, metric names) and numbers do not:
+they are join keys, and a masked case id would break the report against the
+artifacts it was built from. The final rendered document is gated separately by
+:func:`~.base.assert_redaction_clean`, which reads identifiers too and is what
+actually makes the guarantee.
 
 Deterministic: no clock, no RNG, no network, and no generation timestamp. Two
 reports built from the same comparison directory are byte-identical.
@@ -54,7 +57,7 @@ from .base import (
     Redactor,
     ReportError,
     flag_sort_key,
-    identity_redactor,
+    masking_redactor,
     severity_rank,
 )
 
@@ -511,7 +514,7 @@ def build_report(
     meta: ComparisonMeta,
     *,
     top: int | None = DEFAULT_TOP,
-    redactor: Redactor = identity_redactor,
+    redactor: Redactor = masking_redactor,
 ) -> ReportModel:
     """Select, sort, and redact. Pure: reads no file and writes none."""
     if top is not None and top < 1:
@@ -622,7 +625,7 @@ def load_report_model(
     comparison_dir: Path | str,
     *,
     top: int | None = DEFAULT_TOP,
-    redactor: Redactor = identity_redactor,
+    redactor: Redactor = masking_redactor,
 ) -> ReportModel:
     """:func:`load_comparison` then :func:`build_report`."""
     records, summary, meta = load_comparison(comparison_dir)

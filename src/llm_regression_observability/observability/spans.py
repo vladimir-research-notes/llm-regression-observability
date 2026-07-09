@@ -37,9 +37,12 @@ misuse this module cannot prevent, so it is labeled on every span.
 **Spans carry symbols, never free text.** A span attribute may hold an
 identifier (``tool_name``, ``source_id``, ``metric``, ``error_kind``), a count, a
 status, or a boolean. It never holds a prompt, a model output, a tool argument
-*value*, a retrieved snippet, or an error *message*. Redaction lands in Milestone
-9; until a redactor has seen a string, no telemetry artifact may copy it. Tool
-argument **keys** are carried because they are schema, not content.
+*value*, a retrieved snippet, or an error *message*. Tool argument **keys** are
+carried because they are schema, not content — and because Milestone 9's redactor
+masks strings inside ``arguments`` keys included, so a key that was ever a secret is
+a placeholder by the time it reaches here. :func:`write_spans` gates the rendered
+file against the same certain-tier table the report gate uses: spans are masked
+nowhere and refused everywhere, because every string in them is a join key.
 
 Span status is about whether the *operation* succeeded, not whether the *score*
 passed: an evaluator span that reports ``passed=False`` has ``status="ok"``,
@@ -60,7 +63,8 @@ from typing import Any, ClassVar
 from ..evaluators.base import rounded
 from ..evaluators.errors import app_errors, attribution, infra_errors
 from ..schemas import EvalCase, MetricResult, RunRecord, Schema
-from ..traces.storage import read_jsonl, write_jsonl
+from ..traces.redaction import assert_clean
+from ..traces.storage import read_jsonl, render_jsonl, write_jsonl
 from .metrics import signal_of
 
 __all__ = [
@@ -492,8 +496,22 @@ def validate_spans(spans: Sequence[Span]) -> None:
 
 
 def write_spans(path: Path | str, spans: Sequence[Span]) -> Path:
-    """Validate, then write ``spans.jsonl``. An invalid tree is never written."""
+    """Validate, gate, then write ``spans.jsonl``.
+
+    Neither an invalid tree nor a credential-like string is ever written. Spans are a
+    **gate** target and not a **mask** target, which is the answer Milestone 9 owed
+    Milestone 8's open question: every attribute here is a symbol — a tool name, a
+    source id, a metric name, an error kind — and every one of them is a join key that
+    the trace, the comparison and the report all index by. Masking a tool name would
+    silently break tool-call comparison in exchange for protecting a string that, by
+    construction, holds no free text.
+
+    So the rule is the report's rule: the record was masked upstream (the executor
+    redacts before it hashes), and what lands here is scanned and refused. A secret in
+    a tool name means the *source trace* is wrong, and that is worth stopping for.
+    """
     validate_spans(spans)
+    assert_clean(render_jsonl(spans), source=str(path))
     return write_jsonl(path, spans)
 
 

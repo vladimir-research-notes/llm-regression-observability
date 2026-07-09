@@ -170,8 +170,8 @@ recorded on the trigger that raised the flag: `schema_invalid`,
 `disallowed_tool:shell_exec`, `coverage_drop`, `app_error:tool_retry`. The
 signature carries the offending *symbol* where one exists, because "the model
 started calling `shell_exec`" is a root cause and "a tool was wrong" is not. It
-never carries model-generated prose, so a cluster label is safe to print before
-the Milestone 9 redactor runs.
+never carries model-generated prose, so a cluster label was safe to print even before
+the redactor existed; the report now masks it anyway, on the way in.
 
 Two flags cluster when they share `(category, signature)` — no distance metric, no
 fitted grouping, nothing that could not be reproduced from the artifact alone. A

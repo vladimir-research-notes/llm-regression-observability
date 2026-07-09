@@ -26,7 +26,7 @@
 </header>
 <main>
   <h1>Results</h1>
-  <p><span class="status done">status: Milestone 8 complete — 18/18 injected defects detected with their annotated category and severity; 0 false positives on the 8 negative controls; the comparison renders as a deterministic, redaction-gated report; each run now projects into a span tree and reduces to suite metrics that keep harness signals separate; 577 tests passing</span></p>
+  <p><span class="status done">status: Milestone 9 complete — 18/18 injected defects detected with their annotated category and severity; 0 false positives on the 8 negative controls; the comparison renders as a deterministic, redaction-gated report; each run projects into a span tree and reduces to suite metrics that keep harness signals separate; a masking redactor now runs in front of every write, and 52/52 committed fixture records pass through it unchanged; 651 tests passing</span></p>
 
   <div class="callout">Everything below is measured on <strong>synthetic fixtures
   with injected defects</strong>. 18/18 recall on a suite built to be detected is
@@ -268,10 +268,12 @@ result           : PASS</code></pre>
   if any module under <code>reports/</code> imports <code>time</code>,
   <code>datetime</code>, <code>random</code>, <code>secrets</code>,
   <code>socket</code>, <code>urllib</code>, <code>http</code>, or
-  <code>requests</code>. <strong>Redaction-gated, fail-closed</strong> — the rendered
-  document is scanned for credential-like strings immediately before it is written;
-  one that survived the redactor is refused, and the error names the pattern and line
-  without echoing the value. <strong>Sourced only from the artifacts</strong> — every
+  <code>requests</code>. <strong>Redaction-masked, then gated fail-closed</strong> —
+  free text is masked on the way into the report model, and the rendered document is
+  then scanned for credential-like strings immediately before it is written; one that
+  survived (necessarily in an identifier the redactor will not rewrite) is refused, and
+  the error names the pattern and line without echoing the value.
+  <strong>Sourced only from the artifacts</strong> — every
   string is a case id, a metric name, a threshold, or a rule-authored explanation; no
   model-generated output text is copied into it.</p>
   <p>The HTML rendering is one self-contained file: no <code>&lt;link&gt;</code>, no
@@ -344,10 +346,38 @@ result           : PASS</code></pre>
     duration per case; the partition asserts ordering only.</li>
   </ul>
 
+  <h2>Redaction and safety hygiene (Milestone 9)</h2>
+  <p><code>traces/redaction.py</code> holds the one pattern table and the masking
+  redactor. It runs before the executor hashes a run, before the report generator
+  renders, and before the span writer writes. Twelve rules across two tiers; see
+  <a href="safety.html">Safety</a>.</p>
+  <table>
+    <thead><tr><th>Property</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><td>Committed fixture records unchanged by redaction</td><td><strong>52 / 52</strong>, all <code>clean</code></td></tr>
+      <tr><td>Smoke pipeline byte-identical to before the milestone</td><td>yes (<code>run.jsonl</code>, <code>run_meta.json</code>, <code>regression_report.md</code>)</td></tr>
+      <tr><td><code>llmreg scan-secrets</code> on this repository</td><td><strong>0 findings</strong></td></tr>
+      <tr><td><code>redaction_status</code> values reachable and tested</td><td>3 / 3 (<code>clean</code>, <code>redacted</code>, <code>flagged</code>)</td></tr>
+      <tr><td>Tests</td><td>73 in <code>tests/test_redaction.py</code> (74 new; 651 total)</td></tr>
+    </tbody>
+  </table>
+  <p>The first row is the load-bearing one. Redaction rewrites <code>final_output</code>
+  <em>before</em> an evaluator ever reads it, so a false-positive mask would silently
+  change a score. That all 52 records pass through untouched is what says the rules are
+  tuned for this corpus — and the assertion lives in a test, so a future rule that starts
+  rewriting scored text fails the suite rather than producing mysterious evaluator drift.</p>
+  <p>The three statuses are each reachable, which the schema's vocabulary would otherwise
+  only claim: a clean record stays <code>clean</code>; a credential in
+  <code>final_output</code> yields <code>redacted</code> and
+  <code>[REDACTED:openai_key]</code> in the artifact; a credential in
+  <code>model_id</code> — a join key — yields <code>flagged</code> and the executor
+  <strong>refuses the run</strong>, naming the field and the pattern without echoing the
+  value.</p>
+
   <h2>What will be reported next</h2>
-  <p>Milestone 9 adds redaction and safety hygiene: a masking redactor in
-  <code>traces/redaction.py</code>, plugged into the fail-closed gate Milestone 7
-  built, and applied before any report is written.</p>
+  <p>Milestone 10 defines the integration contracts: trace import/export formats so a
+  sibling repository can hand this one a run and get a comparison back. An imported trace
+  is the first thing that can legitimately arrive <code>flagged</code>.</p>
 
   <h2>Reproduction</h2>
   <p>Every step runs today.</p>

@@ -145,13 +145,27 @@ single flag whose `explanation` names the runners-up after `also:`. The report
 renders that string; it cannot split "wrong tool *and* missing tool *and* sequence
 drift" into three rows, because `RegressionFlag` has no structured `detail` field.
 
-## Redaction is currently a refusal, not a mask
+## Redaction can rewrite text that a scorer then reads
 
-The report generator scans its fully rendered output for credential-like strings
-and **refuses to write** if it finds one (`reports/base.py`). It does not yet mask:
-the masking redactor is Milestone 9, and until it lands the default redactor in the
-seam is the identity function. A comparison artifact carrying a secret therefore
-produces no report at all rather than a redacted one. See [`SAFETY.md`](SAFETY.md).
+`traces/redaction.py` masks a `RunRecord`'s content fields *before* the record is
+hashed, persisted, or scored. That is the correct order for safety and the wrong
+order for nothing — except that a **false-positive mask changes a scored string**. The
+heuristic tier (credential-named assignments, emails, generic high-entropy tokens)
+fires on suspicion by design, so a synthetic fixture containing a long mixed-class
+token would be scored on `[REDACTED:high_entropy_token]` rather than on its own text.
+
+Three things bound the risk rather than eliminate it. The generic-token rule requires
+24+ characters *and* mixed character classes *and* entropy above a prose floor, which
+clears SHA-256 digests, UUIDs and hyphenated run ids.
+`redaction_status` records that masking happened, so a surprising score has a visible
+cause. And `test_the_committed_fixtures_pass_through_redaction_unchanged` asserts all
+52 committed fixture records are byte-identical after redaction — a future rule that
+starts rewriting scored text fails that test rather than producing a mysterious
+evaluator drift.
+
+Identity fields are never rewritten, so pairing and tool-call diffing cannot be
+corrupted this way; a secret in one of those refuses the run instead. See
+[`SAFETY.md`](SAFETY.md).
 
 ## Span timings assert ordering, not duration
 

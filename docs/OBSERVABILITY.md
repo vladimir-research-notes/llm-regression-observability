@@ -79,11 +79,17 @@ either, so the child order — model call, then tools, then sources — is
 
 A span attribute holds an identifier (`tool_name`, `source_id`, `metric`,
 `error_kind`), a count, a status, or a boolean. It never holds a prompt, a model
-output, a tool argument *value*, a retrieved snippet, or an error *message*.
-Redaction lands in Milestone 9; until a redactor has seen a string, no telemetry
-artifact may copy it. Tool argument **keys** are carried, because they are schema,
-not content. A test scans every span attribute of every committed fixture record
-against the free text of the record it came from.
+output, a tool argument *value*, a retrieved snippet, or an error *message*. Tool
+argument **keys** are carried, because they are schema, not content. A test scans
+every span attribute of every committed fixture record against the free text of the
+record it came from.
+
+Because every string in a span is a join key, `spans.jsonl` is a **gate** target and
+not a **mask** target: `write_spans` scans the rendered file against the certain-tier
+rules of `traces/redaction.py` and refuses rather than writes. Masking a `tool_name`
+would silently break tool-call comparison in exchange for protecting a string that,
+by construction, holds no free text. The record it was projected from was masked
+upstream, in the executor. See [`SAFETY.md`](SAFETY.md).
 
 ### Status is about the operation, not the score
 

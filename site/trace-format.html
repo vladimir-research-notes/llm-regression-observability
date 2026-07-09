@@ -169,6 +169,31 @@ records_sha256, llmreg_version</code></pre>
   two comparisons of the same two runs produce byte-identical files. No Milestone 1
   schema changed to accommodate the engine.</p>
 
+  <h3><code>redaction_status</code> (Milestone 9)</h3>
+  <p><strong>Derived</strong> by <code>traces/redaction.py</code>, never believed from
+  the adapter that produced the record. The values form a lattice —
+  <code>clean &lt; redacted &lt; flagged</code> — and redaction takes the maximum of what
+  it found and what the record already claimed, so the status can only escalate and
+  redacting twice changes nothing.</p>
+  <ul>
+    <li><code>clean</code> — no rule fired.</li>
+    <li><code>redacted</code> — a rule fired in a <strong>content field</strong>
+    (<code>final_output</code>, <code>parsed_output</code>, tool-call
+    <code>arguments</code>, an <code>error</code>, a <code>snippet</code>, a
+    <code>claim</code>, an error <code>message</code>) and was masked with
+    <code>[REDACTED:&lt;rule&gt;]</code>.</li>
+    <li><code>flagged</code> — a credential-like string sits in an <strong>identity
+    field</strong>: <code>run_id</code>, <code>case_id</code>, <code>model_id</code>, a
+    <code>tool_calls[].name</code>, a <code>retrieval_sources[].source_id</code>, an
+    <code>errors[].kind</code>. The redactor will not rewrite these, because the pipeline
+    joins on them. A <code>flagged</code> run is <strong>refused</strong>, so the value
+    never appears in a file this project wrote — it exists for traces imported from
+    elsewhere.</li>
+  </ul>
+  <p>Redaction runs inside <code>execute_suite</code>, before tokens are accounted and
+  before <code>run.jsonl</code> is hashed, so <code>records_sha256</code> digests the
+  redacted bytes. See <a href="safety.html">Safety</a>.</p>
+
   <h2>Span (Milestone 8)</h2>
   <pre><code>trace_id, span_id, parent_id?, name, case_id, run_id,
 start_ms, end_ms, status, attributes</code></pre>
@@ -208,6 +233,7 @@ metrics_sha256, spans_sha256, llmreg_version</code></pre>
     <li>docs/OBSERVABILITY.md — the span model and its timing rules</li>
     <li>src/llm_regression_observability/schemas.py — typed models (Milestone 1)</li>
     <li>src/llm_regression_observability/traces/storage.py — byte-stable JSONL/JSON read/write (Milestone 4)</li>
+    <li>src/llm_regression_observability/traces/redaction.py — the pattern table, the mask, the gate, redaction_status (Milestone 9)</li>
     <li>src/llm_regression_observability/executor.py — RunMeta and the run artifacts (Milestone 4)</li>
     <li>src/llm_regression_observability/comparison/aggregate.py — ComparisonMeta and the comparison artifacts (Milestone 6)</li>
     <li>src/llm_regression_observability/observability/spans.py — Span, validate_spans (Milestone 8)</li>
@@ -216,6 +242,7 @@ metrics_sha256, spans_sha256, llmreg_version</code></pre>
     <li>tests/test_run_executor.py — storage round-trip, artifact self-check, determinism</li>
     <li>tests/test_comparison.py — artifact reload, digest check, byte stability</li>
     <li>tests/test_observability.py — tree invariants on the write and the read path</li>
+    <li>tests/test_redaction.py — masking, statuses, and the gate on every write path</li>
   </ul>
 
   <h2>Open questions / limitations</h2>

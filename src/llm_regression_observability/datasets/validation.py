@@ -15,7 +15,10 @@
    candidate actually differs from the baseline on some behavioral field (so the
    annotation cannot describe a defect that was never injected).
 4. **Synthetic-only, no secrets** — no fixture text matches a credential-like
-   pattern (a lightweight precursor to the Milestone 9 redactor).
+   pattern. The pattern table is the Milestone 9 one
+   (:data:`~..traces.redaction.SECRET_PATTERNS`), not a copy of it: a fixture, a
+   report, a span file and a source tree are all scanned against the same
+   definition of "credential-like".
 
 The checks are collected into a :class:`ValidationReport` rather than raised, so
 one run reports every problem. The CLI (``llmreg validate-fixtures``) and
@@ -24,12 +27,12 @@ one run reports every problem. The CLI (``llmreg validate-fixtures``) and
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from ..schemas import RunRecord, SchemaError
+from ..traces.redaction import SECRET_PATTERNS, scan_for_secrets
 from .fixtures import (
     NO_REGRESSION,
     SUITE_EXPECTED_CATEGORIES,
@@ -65,19 +68,6 @@ _CONTEXT_FIELDS: frozenset[str] = frozenset(
     }
 )
 
-# Credential-like patterns. Deliberately specific (known key prefixes, private
-# key headers, bearer tokens) to avoid flagging ordinary synthetic prose.
-SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("openai_key", re.compile(r"sk-[A-Za-z0-9]{16,}")),
-    ("aws_access_key", re.compile(r"AKIA[0-9A-Z]{16}")),
-    ("github_token", re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}")),
-    ("google_api_key", re.compile(r"AIza[0-9A-Za-z_\-]{20,}")),
-    ("slack_token", re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}")),
-    ("bearer_token", re.compile(r"Bearer\s+[A-Za-z0-9._\-]{20,}")),
-    ("private_key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
-)
-
-
 @dataclass
 class Issue:
     """A single validation problem, located as precisely as possible."""
@@ -110,11 +100,6 @@ class ValidationReport:
         self.issues.append(
             Issue(suite=suite, kind=kind, message=message, case_id=case_id)
         )
-
-
-def scan_for_secrets(text: str) -> list[str]:
-    """Return the names of any credential-like patterns found in ``text``."""
-    return [name for name, pat in SECRET_PATTERNS if pat.search(text)]
 
 
 def _behavioral_fields(record: RunRecord) -> dict[str, Any]:

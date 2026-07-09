@@ -1,9 +1,10 @@
 # Results
 
 > **Status: the detector works, on synthetic ground truth, and reports what it
-> found.** Milestones 4–8 are implemented, so the run artifacts, the per-case
-> scores, the **regression flags**, the **rendered report**, and the **spans and
-> suite metrics** below are real and reproducible. On the six committed fixture suites the comparison engine detects
+> found.** Milestones 4–9 are implemented, so the run artifacts, the per-case
+> scores, the **regression flags**, the **rendered report**, the **spans and
+> suite metrics**, and the **redaction** in front of all of them below are real and
+> reproducible. On the six committed fixture suites the comparison engine detects
 > **18 of 18 injected defects** with the category and severity their ground truth
 > annotates, and raises **0 false positives** on the 8 negative controls.
 > Everything on this page is measured on synthetic fixtures and does not
@@ -256,12 +257,14 @@ Three properties, each with a test:
   comparison are byte-identical, and an AST scan fails if any module under
   `reports/` imports `time`, `datetime`, `random`, `secrets`, `socket`, `urllib`,
   `http`, or `requests`.
-- **Redaction-gated, fail-closed.** The fully rendered document is scanned for
-  credential-like strings immediately before it is written; one that survived the
-  redactor is refused, not written, and the error names the pattern and line
-  without echoing the value. The masking redactor arrives in Milestone 9 and plugs
-  into the same seam. Tested by splicing a fake key into a copy of the smoke
-  comparison and asserting the write — and the `--dry-run` — both refuse.
+- **Redaction-masked, then gated fail-closed.** Free text is masked on the way into
+  the report model (Milestone 9); the fully rendered document is then scanned for
+  credential-like strings immediately before it is written, and one that survived —
+  necessarily in an identifier the redactor will not rewrite — is refused, not
+  written. The error names the pattern and line without echoing the value. Tested by
+  splicing a fake key into a copy of the smoke comparison twice: into a flag
+  explanation, where the write succeeds and the document holds `[REDACTED:openai_key]`;
+  and into a run id, where the write *and* the `--dry-run` both refuse.
 - **Sourced only from the artifacts.** The report reads `comparison.jsonl`,
   `summary.json` and `comparison_meta.json`, and nothing else. Every string in it
   is a case id, a metric name, a threshold, or a rule-authored explanation. No
@@ -353,11 +356,38 @@ committed fixture records against the free text of the record it came from.
 - No live model was called. No cost was incurred. Latency is recorded, not
   measured.
 
+## Redaction and safety hygiene (Milestone 9)
+
+`traces/redaction.py` holds the one pattern table and the masking redactor. It runs
+before the executor hashes a run, before the report generator renders, and before the
+span writer writes. Twelve rules across two tiers; see [`SAFETY.md`](SAFETY.md).
+
+| Property | Result |
+| --- | --- |
+| Committed fixture records unchanged by redaction | **52 / 52**, all `clean` |
+| Smoke pipeline byte-identical to before the milestone | yes (`run.jsonl`, `run_meta.json`, `regression_report.md`) |
+| `llmreg scan-secrets` on this repository | **0 findings** |
+| `redaction_status` values reachable and tested | 3 / 3 (`clean`, `redacted`, `flagged`) |
+| Tests | 73 in `tests/test_redaction.py` (74 new; 651 total) |
+
+The first row is the load-bearing one. Redaction rewrites `final_output` *before* an
+evaluator ever reads it, so a false-positive mask would silently change a score. That
+all 52 records pass through untouched is what says the rules are tuned for this
+corpus; the assertion lives in
+`test_the_committed_fixtures_pass_through_redaction_unchanged`, so a future rule that
+starts rewriting scored text fails a test rather than producing evaluator drift.
+
+The three statuses are each reachable, which the schema's vocabulary would otherwise
+only claim: a clean record stays `clean`; a credential in `final_output` yields
+`redacted` and `[REDACTED:openai_key]` in the artifact; a credential in `model_id` —
+a join key — yields `flagged` and the executor **refuses the run**, naming the field
+and the pattern without echoing the value.
+
 ## What will be reported here next
 
-Milestone 9 adds redaction and safety hygiene: a masking redactor in
-`traces/redaction.py`, plugged into the fail-closed gate Milestone 7 built, and
-applied before any report is written.
+Milestone 10 defines the integration contracts: trace import/export formats so a
+sibling repository can hand this one a run and get a comparison back. An imported
+trace is the first thing that can legitimately arrive `flagged`.
 
 ## Reproduction
 

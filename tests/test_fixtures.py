@@ -207,10 +207,15 @@ def test_smoke_manifest_loads_and_resolves() -> None:
 
 
 def test_secret_scanner_flags_planted_credentials() -> None:
-    # AWS's own documented example key id — synthetic, safe to test against.
-    assert "aws_access_key" in scan_for_secrets("id=AKIAIOSFODNN7EXAMPLE")
-    assert scan_for_secrets("Authorization: Bearer abcdefghijklmnopqrstuvwxyz012345")
-    assert "private_key" in scan_for_secrets("-----BEGIN RSA PRIVATE KEY-----")
+    # AWS's own documented example key id — synthetic, safe to test against. The
+    # `redaction:allow` markers keep `scan_tree` (scripts/08_check_repo_hygiene.py)
+    # from reporting the literals this test must name in order to test anything.
+    aws = "id=AKIAIOSFODNN7EXAMPLE"  # redaction:allow
+    auth = "Authorization: Bearer abcdefghijklmnopqrstuvwxyz012345"  # redaction:allow
+    pem = "-----BEGIN RSA PRIVATE KEY-----"  # redaction:allow
+    assert "aws_access_key" in scan_for_secrets(aws)
+    assert scan_for_secrets(auth)
+    assert "private_key" in scan_for_secrets(pem)
 
 
 def test_committed_fixtures_have_no_secrets() -> None:

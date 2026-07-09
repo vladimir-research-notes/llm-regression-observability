@@ -17,33 +17,62 @@ or application.
   and benign; it tests whether a change shifts refusal behavior, not whether the
   model should comply with anything harmful.
 
-## Redaction: the gate (Milestone 7) and the mask (Milestone 9)
+## Redaction: the mask and the gate
 
-Two mechanisms, built in that order on purpose.
+Two mechanisms, one pattern table. `traces/redaction.py` is the single definition of
+"credential-like" in this repository; `reports/base.py` (the report gate),
+`datasets/validation.py` (`llmreg validate-fixtures`), `observability/spans.py` (the
+span writer) and `executor.py` (the trace writer) all read it from there. A second
+copy of a pattern table is a false sense of safety, because the copy that misses a
+pattern is the one that runs.
 
-**The gate exists now.** `reports/base.py::assert_redaction_clean` scans the fully
-rendered report immediately before the bytes hit the disk and is **fail-closed**: a
-credential-like string that reached the document means the report is *refused*, not
-written. The error names the pattern and the line and never echoes the value —
-an error message is a place secrets leak too. `llmreg report --dry-run` runs the
-same gate, so a dry run cannot pass where a real write would refuse.
+**The mask.** `redact_text()` replaces a match with `[REDACTED:<rule>]`. It runs on
+every content field of a `RunRecord` inside `execute_suite` — before tokens are
+accounted and before `run.jsonl` is hashed — and on every free-text field the report
+generator copies out of a comparison artifact. The placeholder matches no rule, so
+redaction is idempotent.
 
-The patterns it recognizes today (`datasets/validation.py::SECRET_PATTERNS`, also
-used by `llmreg validate-fixtures`) are provider-style API keys (`sk-…`, `AKIA…`,
-`gh[pousr]_…`, `AIza…`, `xox[baprs]-…`), bearer tokens, and private-key headers.
+**The gate.** `assert_redaction_clean` scans the fully rendered report immediately
+before the bytes hit the disk and is **fail-closed**: a credential-like string that
+reached the document means the report is *refused*, not written. `llmreg report
+--dry-run` runs the same gate, so a dry run cannot pass where a real write would
+refuse. `write_spans` gates `spans.jsonl` the same way.
 
-**The mask arrives with Milestone 9.** `traces/redaction.py` will supply a redactor
-that *masks* rather than refuses — covering the patterns above plus generic
-high-entropy tokens, `Authorization` headers, and email addresses — and will set
-`redaction_status` (`clean` | `redacted` | `flagged`) on each `RunRecord` before
-persistence. It plugs into the `Redactor` seam that `reports.build_report()`
-already takes; the gate stays exactly where it is, as the last assertion.
+The two are not redundant. The mask sees only *free text*, because identifiers —
+case ids, run ids, metric names, tool names — are join keys, and rewriting one would
+corrupt the artifact it claims to protect. The gate reads the whole document,
+identifiers included. A secret in an explanation is masked; a secret in a run id is
+refused. Neither ever echoes what it found: an error message is a place secrets leak
+too.
 
-Milestone 7's default redactor masks nothing, which is precisely why the gate is
-fail-closed rather than advisory.
+### Two tiers: refuse on evidence, mask on suspicion
 
-Independently of both: a comparison artifact carries no model-generated prose to
-begin with. Flag explanations, per-case summaries and cluster labels are authored
+| Tier | Rules | Behavior |
+| --- | --- | --- |
+| `certain` | `sk-…`, `AKIA…`, `gh[pousr]_…`, `AIza…`, `xox[baprs]-…`, JWT, private-key header, `Bearer …`, `Authorization: …` | mask; **and** refuse an artifact that still contains one |
+| `heuristic` | credential-named assignment (`api_key=…`), email address, generic high-entropy token | mask only — **never** blocks an artifact |
+
+A heuristic rule can fire on legitimate text, and a false-positive refusal is a denial
+of service on your own report. A false-positive mask costs one mangled string, and
+`redaction_status` records that it happened. The generic-token rule additionally
+requires mixed character classes, which is what keeps it off the SHA-256 digest this
+project writes into every `run_meta.json`.
+
+### `redaction_status`
+
+Derived by the redactor, never believed from an adapter. The values form a lattice —
+`clean < redacted < flagged` — and redaction takes the maximum of what it found and
+what the record already claimed, so the status can only escalate.
+
+- `clean` — no rule fired.
+- `redacted` — a rule fired in a content field and was masked.
+- `flagged` — a certain-tier rule fired in an **identity field** (a join key the
+  redactor will not rewrite). The executor **refuses the run**, naming the field and
+  the pattern. A `flagged` record therefore never appears in a file this project
+  wrote; it is reachable only on a trace imported from elsewhere.
+
+Independently of all of this: a comparison artifact carries no model-generated prose
+to begin with. Flag explanations, per-case summaries and cluster labels are authored
 by the rules from metric names, numbers, tool names and property names — never by
 copying a model's output. The report renders only those, so the gate is a backstop,
 not the only line of defence.
@@ -52,8 +81,22 @@ not the only line of defence.
 
 Secrets, API keys, real API responses, private data, `.env` files, large logs,
 response caches, model weights, and `.claude/settings*.json` are all
-`.gitignore`d. The repository-hygiene check (part of the environment preflight)
-scans for these before commits in CI-style usage.
+`.gitignore`d.
+
+The repository-hygiene check scans the committed tree for what slipped through
+anyway:
+
+```bash
+python3 scripts/08_check_repo_hygiene.py     # exits 1 on any finding
+llmreg scan-secrets [PATH]                    # the same scan, from the CLI
+```
+
+It applies the **certain** tier only. The heuristic tier would flag every SHA-256
+digest in `docs/` and every author email in `pyproject.toml`, and a hygiene check that
+cries wolf is a hygiene check that gets skipped. A file that must legitimately name a
+credential shape — a test asserting the scanner works — marks the line with
+`redaction:allow`. The scan reports the file, the line and the pattern name, never the
+matched value.
 
 ## Optional paid-API mode
 

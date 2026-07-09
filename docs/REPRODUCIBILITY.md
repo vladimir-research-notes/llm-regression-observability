@@ -78,8 +78,17 @@ to turn it into a CI gate (exit 1), or `--dry-run` to compare without writing.
 
 Step 7 renders those records. `--top N` bounds the worst-regressions table (`0`
 shows every flag); `--dry-run` renders and runs the redaction gate without writing.
-The report is refused rather than written if any credential-like string survives
-redaction.
+Free text is masked on the way in; the report is refused rather than written if any
+credential-like string survives — which can only happen in an identifier, because the
+redactor does not rewrite join keys. See [`SAFETY.md`](SAFETY.md).
+
+Redaction is not a step of its own: it runs inside step 4 (before `run.jsonl` is
+hashed), step 5 (before `spans.jsonl` is written) and step 7 (before and after the
+report is rendered). The one command it does add is a repository scan:
+
+```bash
+llmreg scan-secrets                    # or: python3 scripts/08_check_repo_hygiene.py
+```
 
 Without an editable install (the default on the build host), use the numbered
 helper scripts, which prepend `src/` to `sys.path`:
@@ -92,6 +101,7 @@ python3 scripts/04_score_runs.py       # -> results/processed/<run_id>/metrics.j
 python3 scripts/07_aggregate_runs.py   # -> spans.jsonl + results/processed/<run_id>/aggregate.json
 python3 scripts/05_compare_runs.py     # -> results/comparisons/smoke-baseline-vs-candidate/
 python3 scripts/06_generate_report.py  # -> results/reports/regression_report.{md,html}
+python3 scripts/08_check_repo_hygiene.py  # exits 1 on any committed credential
 ```
 
 `02`, `03`, `05` and `06` accept extra flags verbatim, e.g. `--dry-run` (execute

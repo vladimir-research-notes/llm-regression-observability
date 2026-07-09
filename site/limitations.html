@@ -130,12 +130,32 @@
   <em>and</em> sequence drift" into three rows would need a structured
   <code>detail</code> field on <code>RegressionFlag</code>.</p>
 
-  <h2>Redaction is currently a refusal, not a mask</h2>
-  <p>The report generator scans its fully rendered output for credential-like strings
-  and <strong>refuses to write</strong> if it finds one. It does not yet mask: the
-  masking redactor is Milestone 9, and until it lands the default redactor in the seam
-  is the identity function. A comparison artifact carrying a secret therefore produces
-  no report at all rather than a redacted one. See <a href="safety.html">Safety</a>.</p>
+  <h2>Redaction can rewrite text that a scorer then reads</h2>
+  <p><code>traces/redaction.py</code> masks a <code>RunRecord</code>'s content fields
+  <em>before</em> the record is hashed, persisted, or scored. That is the correct order
+  for safety — and it means a <strong>false-positive mask changes a scored
+  string</strong>. The heuristic tier (credential-named assignments, emails, generic
+  high-entropy tokens) fires on suspicion by design, so a synthetic fixture containing a
+  long mixed-class token would be scored on
+  <code>[REDACTED:high_entropy_token]</code> rather than on its own text.</p>
+  <p>Three things bound the risk rather than eliminate it. The generic-token rule requires
+  24+ characters <em>and</em> mixed character classes <em>and</em> entropy above a prose
+  floor, which clears SHA-256 digests, UUIDs and hyphenated run ids.
+  <code>redaction_status</code> records that masking happened, so a surprising score has a
+  visible cause. And a test asserts all 52 committed fixture records are byte-identical
+  after redaction, so a future rule that starts rewriting scored text fails the suite
+  rather than producing mysterious evaluator drift.</p>
+  <p>Identity fields are never rewritten, so pairing and tool-call diffing cannot be
+  corrupted this way; a secret in one of those refuses the run instead. See
+  <a href="safety.html">Safety</a>.</p>
+
+  <h2>The entropy thresholds are tuned, not derived</h2>
+  <p>The generic-token rule uses a 24-character minimum, a 3.2-bits-per-character entropy
+  floor, and a mandatory lowercase + uppercase + digit filter. There is no
+  false-positive/false-negative measurement behind those numbers — they were chosen against
+  the strings this repository writes, and the character-class filter (not the entropy floor)
+  is what clears a SHA-256 digest, whose entropy is 3.79. Any real corpus should re-tune
+  them.</p>
 
   <h2>Span timings assert ordering, not duration</h2>
   <p>A trace records exactly one duration per case, <code>latency_ms</code>. The span

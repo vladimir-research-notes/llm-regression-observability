@@ -13,11 +13,15 @@ so two renders are byte-identical, and both formats draw their rows from one
 ``ReportModel``. An AST scan fails if any module in ``reports/`` reaches for a
 clock, an RNG, or a socket.
 
-**It could leak a secret.** :func:`~reports.base.assert_redaction_clean` runs on
-the fully rendered document immediately before it is written, and is fail-closed:
-the tests assert a report carrying a credential-like string is *refused*, that the
-refusal names the pattern without echoing the value, and that a masking redactor
-in the Milestone 9 seam lets the same report through clean.
+**It could leak a secret.** Free text is masked on the way in by the Milestone 9
+redactor, and :func:`~reports.base.assert_redaction_clean` runs on the fully
+rendered document immediately before it is written. The gate is fail-closed, and
+the tests hold it to that with the mask explicitly disabled
+(``redactor=identity_redactor``): a report carrying a credential-like string is
+*refused*, the refusal names the pattern without echoing the value, and a masking
+redactor in the same seam lets the identical report through clean. A secret that
+the redactor never sees — one in a run id, which is a join key and is deliberately
+not rewritten — is still refused.
 
 **It could report a clean run it was never able to look at.** Unpaired cases,
 infra-attributed cases, and withheld flags are asserted to surface in the
@@ -60,6 +64,7 @@ from llm_regression_observability.reports.base import (
     fmt_ms_delta,
     fmt_usd_delta,
     fmt_value,
+    identity_redactor,
     secret_findings,
 )
 from llm_regression_observability.schemas import (
@@ -491,10 +496,19 @@ def test_the_gate_names_the_pattern_and_the_line_but_never_the_value() -> None:
 def test_a_report_carrying_a_secret_is_refused_and_nothing_is_written(
     tmp_path: Path,
 ) -> None:
+    """The gate holds on its own, with the mask explicitly disabled.
+
+    Milestone 9 made ``build_report``'s default redactor a masking one, so a secret
+    in an explanation is normally cleaned rather than refused. Passing
+    ``identity_redactor`` removes the mask and leaves exactly the property under
+    test here: a rendered document that still carries a credential is not written.
+    """
     records = [
         _record("leaky", _flag("latency_regression", "warn", explanation=FAKE_KEY))
     ]
-    model = _model(records)
+    model = build_report(
+        records, _summary(records), _meta(records), redactor=identity_redactor
+    )
     out = tmp_path / "regression_report.md"
     with pytest.raises(ReportError, match="openai_key"):
         write_report(model, out)
@@ -536,7 +550,10 @@ def test_a_masking_redactor_in_the_seam_lets_the_same_report_through_clean(
 
 
 def test_both_renderers_are_gated(tmp_path: Path) -> None:
-    leaky = _model([_record("x", _flag("cost_regression", explanation=FAKE_KEY))])
+    records = [_record("x", _flag("cost_regression", explanation=FAKE_KEY))]
+    leaky = build_report(
+        records, _summary(records), _meta(records), redactor=identity_redactor
+    )
     for fmt in reports.FORMATS:
         with pytest.raises(ReportError, match="openai_key"):
             write_report(leaky, tmp_path / "r", fmt)
@@ -557,6 +574,24 @@ def test_a_real_comparison_carrying_a_secret_is_never_written(
     with pytest.raises(ReportError, match="openai_key"):
         generate_report(leaky_comparison, out)
     assert not out.exists()
+
+
+def test_a_secret_in_free_text_is_masked_and_the_report_is_written(
+    tmp_path: Path, maskable_comparison: Path
+) -> None:
+    """Redaction runs *before* the report is written — the milestone's own claim.
+
+    The same leak that a run id would make fatal is, in an explanation, merely
+    masked. The document is produced, the reader still learns which case regressed
+    and why, and the credential is gone.
+    """
+    out = tmp_path / "regression_report.md"
+    result = generate_report(maskable_comparison, out, formats=reports.FORMATS)
+    for fmt in reports.FORMATS:
+        text = result.paths[fmt].read_text(encoding="utf-8")
+        assert FAKE_KEY not in text
+        assert "[REDACTED:openai_key]" in text
+        assert secret_findings(text) == ()
 
 
 # --------------------------------------------------------------------------- #
@@ -794,22 +829,44 @@ def smoke_report(smoke_comparison: Path) -> str:
     return render_html(load_report_model(smoke_comparison))
 
 
+def _splice(source: Path, destination: Path, old: str, new: str) -> Path:
+    """Copy a comparison directory, substituting ``old`` for ``new`` throughout."""
+    destination.mkdir()
+    for name in ("comparison.jsonl", "summary.json", "comparison_meta.json"):
+        text = (source / name).read_text(encoding="utf-8")
+        destination.joinpath(name).write_text(text.replace(old, new), encoding="utf-8")
+    return destination
+
+
 @pytest.fixture
 def leaky_comparison(tmp_path: Path, smoke_comparison: Path) -> Path:
-    """The smoke comparison with a credential-like string spliced into one flag.
+    """The smoke comparison with a credential-like string spliced into a **run id**.
 
-    The fixtures on disk stay clean; the copy is what the gate has to catch. This
-    is the shape a real leak would take — a secret in a trace, carried into a flag
-    explanation, on its way to a document a human pastes into a ticket.
+    An identifier is the leak the gate exists for. ``build_report`` masks free text
+    but deliberately does not rewrite a run id, a case id, or a metric name: those
+    are join keys, and a masked one would break the report against the artifacts it
+    was built from. So nothing can clean this document, and the only correct move is
+    to refuse to write it.
+
+    The fixtures on disk stay clean; the copy is what the gate has to catch.
     """
-    leaky = tmp_path / "leaky"
-    leaky.mkdir()
-    for name in ("comparison.jsonl", "summary.json", "comparison_meta.json"):
-        text = (smoke_comparison / name).read_text(encoding="utf-8")
-        leaky.joinpath(name).write_text(
-            text.replace("under_refusal", FAKE_KEY), encoding="utf-8"
-        )
-    return leaky
+    return _splice(
+        smoke_comparison, tmp_path / "leaky", "smoke-baseline-recorded", FAKE_KEY
+    )
+
+
+@pytest.fixture
+def maskable_comparison(tmp_path: Path, smoke_comparison: Path) -> Path:
+    """The smoke comparison with a credential-like string spliced into flag prose.
+
+    ``under_refusal`` occurs only inside rule-authored explanations, so this is the
+    shape a leak from a *trace* would take — free text on its way into a document a
+    human pastes into a ticket. Milestone 9's redactor masks it, and the report is
+    written rather than refused.
+    """
+    return _splice(
+        smoke_comparison, tmp_path / "maskable", "under_refusal", FAKE_KEY
+    )
 
 
 def test_the_smoke_report_names_all_six_detected_regressions(
