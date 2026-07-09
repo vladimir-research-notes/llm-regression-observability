@@ -36,7 +36,7 @@ API.
 
 ## End-to-end smoke
 
-All six steps are implemented (Milestones 2, 4, 5, 6 and 7).
+All seven steps are implemented (Milestones 2, 4, 5, 6, 7 and 8).
 
 ```bash
 # 1. validate fixtures
@@ -50,23 +50,33 @@ llmreg run-suite --suite evals/suites/smoke.yaml --adapter recorded \
 llmreg run-suite --suite evals/suites/smoke.yaml --adapter scripted-regression \
     --app-version candidate --out results/runs/
 
-# 4. score each run independently        (no deltas, no flags — that is step 5)
+# 4. score each run independently        (no deltas, no flags — that is step 6)
 python3 scripts/04_score_runs.py
 
-# 5. compare: pair the runs, raise regression flags, cluster
+# 5. observability: project spans, reduce to suite metrics (per run)
+llmreg aggregate --run results/runs/smoke-baseline-recorded
+llmreg aggregate --run results/runs/smoke-candidate-scripted-regression
+
+# 6. compare: pair the runs, raise regression flags, cluster
 llmreg compare --baseline results/runs/smoke-baseline-recorded \
     --candidate results/runs/smoke-candidate-scripted-regression \
     --out results/comparisons/
 
-# 6. report: render the comparison as Markdown (and/or self-contained HTML)
+# 7. report: render the comparison as Markdown (and/or self-contained HTML)
 llmreg report --comparison results/comparisons/smoke-baseline-vs-candidate \
     --out results/reports/regression_report.md --format both
 ```
 
-Step 5 detects six regressions and no false positives; add `--fail-on critical`
+Step 5 writes `spans.jsonl` next to `run.jsonl` and `aggregate.json` under
+`--out` (default `results/processed`). It keeps **application scores**, **harness
+signals** (`trace_completeness`, `infra_error_rate`) and declared **placeholders**
+in three separate maps; `--dry-run` summarizes without writing. It is independent
+of steps 6–7: the comparison engine does not read its artifacts.
+
+Step 6 detects six regressions and no false positives; add `--fail-on critical`
 to turn it into a CI gate (exit 1), or `--dry-run` to compare without writing.
 
-Step 6 renders those records. `--top N` bounds the worst-regressions table (`0`
+Step 7 renders those records. `--top N` bounds the worst-regressions table (`0`
 shows every flag); `--dry-run` renders and runs the redaction gate without writing.
 The report is refused rather than written if any credential-like string survives
 redaction.
@@ -79,26 +89,36 @@ python3 scripts/01_validate_fixtures.py evals/fixtures
 python3 scripts/02_run_baseline.py     # -> results/runs/smoke-baseline-recorded/
 python3 scripts/03_run_candidate.py    # -> results/runs/smoke-candidate-scripted-regression/
 python3 scripts/04_score_runs.py       # -> results/processed/<run_id>/metrics.jsonl
+python3 scripts/07_aggregate_runs.py   # -> spans.jsonl + results/processed/<run_id>/aggregate.json
 python3 scripts/05_compare_runs.py     # -> results/comparisons/smoke-baseline-vs-candidate/
 python3 scripts/06_generate_report.py  # -> results/reports/regression_report.{md,html}
 ```
 
 `02`, `03`, `05` and `06` accept extra flags verbatim, e.g. `--dry-run` (execute
 and summarize, write nothing) or `--out /tmp/runs`; `04` accepts `--run`,
-`--runs-root`, `--out`, and `--no-write`. Each numbered script sits one slot later
-than its milestone doc names it, from `05` onward: `04_score_runs.py` (Milestone 5)
-took the `04` slot that `docs/milestones/06-comparison.md` wanted for the compare
-script, and the shift carried into `06_generate_report.py`
-(`docs/milestones/07-reports.md` names it `05_generate_report.py`).
+`--runs-root`, `--out`, and `--no-write`; `07` accepts `--run` / `--runs-root` and
+forwards the rest to `llmreg aggregate`. A script's number is a filename, not a
+pipeline position: each sits one slot later than its milestone doc names it, from
+`05` onward (`04_score_runs.py` (Milestone 5) took the `04` slot that
+`docs/milestones/06-comparison.md` wanted for the compare script, and the shift
+carried into `06_generate_report.py`), and `07_aggregate_runs.py` (Milestone 8)
+ran out of slots entirely although aggregation happens before comparison.
 
-Each run writes two artifacts, scoring writes a third, the comparison writes three
-more, and the report writes one per format:
+Each run writes two artifacts, scoring writes a third, aggregation writes two more,
+the comparison writes three, and the report writes one per format:
 
 - `results/runs/<run_id>/run.jsonl` — one `RunRecord` per case, in suite order.
 - `results/runs/<run_id>/run_meta.json` — identity, totals, the cost model
   applied, and the SHA-256 of `run.jsonl`.
 - `results/processed/<run_id>/metrics.jsonl` — one `MetricResult` per
   (case, metric), sorted by metric name within each case.
+- `results/runs/<run_id>/spans.jsonl` — the span tree: one `request` span per case
+  with its `model_call` / `tool_call` / `retrieval` / `evaluator` children. Written
+  by `llmreg aggregate`, not by `run-suite`: an `evaluator` span needs a metric.
+- `results/processed/<run_id>/aggregate.json` — the `RunAggregate`: suite metrics
+  split into `application_metrics`, `harness_metrics` and `placeholder_metrics`,
+  plus `metric_coverage`, the span summary, and the cases whose traces were
+  incomplete or infra-attributed.
 - `results/comparisons/<comparison_id>/comparison.jsonl` — one `ComparisonRecord`
   per paired case.
 - `results/comparisons/<comparison_id>/summary.json` — the `ReportSummary`: what
@@ -130,8 +150,12 @@ diff -r results/runs/smoke-baseline-recorded \
         results/processed/_check/smoke-baseline-recorded
 
 python3 scripts/04_score_runs.py --out results/processed/_check
-diff -r results/processed/smoke-baseline-recorded \
-        results/processed/_check/smoke-baseline-recorded
+diff results/processed/smoke-baseline-recorded/metrics.jsonl \
+     results/processed/_check/smoke-baseline-recorded/metrics.jsonl
+
+python3 scripts/07_aggregate_runs.py --out results/processed/_check
+diff results/processed/smoke-baseline-recorded/aggregate.json \
+     results/processed/_check/smoke-baseline-recorded/aggregate.json
 
 python3 scripts/05_compare_runs.py --out results/processed/_check
 diff -r results/comparisons/smoke-baseline-vs-candidate \
@@ -151,6 +175,17 @@ into `comparison_meta.json`, both printed in the report's header table.
 same digest for its `comparison.jsonl`. Both writers assert it after every write,
 and `tests/test_run_executor.py` / `tests/test_comparison.py` assert it
 independently.
+
+`aggregate.json` carries two digests. `spans_sha256` is the digest of the
+`spans.jsonl` it just wrote. `metrics_sha256` digests the metric stream it reduced,
+which is exactly the `metrics.jsonl` that `scripts/04_score_runs.py` writes
+independently — two stages, one number, so they can be checked against each other
+rather than trusted:
+
+```bash
+sha256sum results/processed/smoke-baseline-recorded/metrics.jsonl
+python3 -c "import json; print(json.load(open('results/processed/smoke-baseline-recorded/aggregate.json'))['metrics_sha256'])"
+```
 
 Latency is a **recorded input**, not a wall-clock measurement — timing the
 adapter would make artifacts differ run to run. See

@@ -184,6 +184,32 @@ to six decimals (`cost_estimate_usd` to eight) so a `MetricResult` serializes to
 identical bytes on any platform and a threshold comparison cannot hinge on the
 last bit of a float.
 
+Milestone 8 implements it in `observability/metrics.py` and
+`observability/aggregation.py`. Three rules govern the result; see
+[`OBSERVABILITY.md`](OBSERVABILITY.md) for the full table.
+
+**A reducer is named, not assumed.** `mean`, `sum`, `p50`, `p95`, `ratio`.
+`ratio` is the fraction of cases with a **non-zero** value, which is what makes
+`app_error_count → error_rate` mean "how many cases errored" rather than "how many
+errors, averaged": two errors on one case out of eight is a rate of `0.125` and a
+mean of `0.25`. `p50`/`p95` reuse the type-7 percentile pinned above.
+
+**Direction is inherited, never restated.** Every reducer is monotone, so a suite
+metric is worse in the same direction its per-case metric is worse.
+`MetricSpec.direction` reads `METRIC_DIRECTION` rather than duplicating it.
+
+**The suite summary keeps three maps, not one.** `application_metrics` are scores
+for the system under test; `harness_metrics` (`trace_completeness`,
+`infra_error_rate`, `infra_error_total`, `incomplete_trace_rate`) describe whether
+the *observation* can be trusted; `placeholder_metrics` are computed and claimed
+for nothing. A flat map would let a broken exporter and a broken model look alike
+at a glance. `metric_coverage` records how many cases contributed to each number,
+because `evidence_coverage_mean = 1.0` over 1 of 8 cases is a fact about one case.
+
+`tool_arg_diff` and `risk_label_delta` are **pairwise** (baseline against
+candidate). A single run never emits them, so no suite metric reduces them — the
+comparison engine owns that dimension.
+
 ## Thresholds
 
 Which metric deltas raise a regression flag, and by how much, is governed by the

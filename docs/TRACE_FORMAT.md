@@ -299,6 +299,54 @@ silence that makes an evaluation harness lie — so they get a file. A compariso
 with an empty summary and a populated sidecar has found nothing and hidden a lot,
 and the two files together make that impossible to miss.
 
+## Span
+
+Written to `results/runs/<run_id>/spans.jsonl` by `llmreg aggregate` (Milestone 8).
+An OpenTelemetry-*shaped* record with no OpenTelemetry dependency.
+
+```
+trace_id       32 hex chars; one case is one trace
+span_id        16 hex chars
+parent_id      str | None
+name           request | model_call | tool_call | retrieval | evaluator
+case_id
+run_id
+start_ms       relative to the request start; from the trace, never the clock
+end_ms
+status         ok | error
+attributes     dict of identifiers, counts, statuses, booleans
+```
+
+Ids are **content-addressed**: `span_id = sha256(run_id | case_id | path)[:16]`,
+where `path` is the span's position in the tree (`request/tool_call/1`). An id is a
+function of where the span sits, never of when it was generated, so two projections
+of one record are byte-identical.
+
+`attributes["timing"]` names where the interval came from. The trace records exactly
+one duration — `RunRecord.latency_ms` — so the `request` span is `recorded`, its
+application children get a contiguous partition of that interval in trace order
+(`derived`, which asserts ordering and **not** duration), and `evaluator` spans are
+zero-width at the request's end (`none`, because scoring happens afterwards in the
+harness).
+
+`status` is about the operation, not the score: an `evaluator` span reporting
+`passed=false` is `status="ok"`. Errors attach to the `request` span with their
+origin and kinds, because `ErrorRecord` names no step.
+
+**Spans carry symbols, never free text.** An attribute holds an identifier
+(`tool_name`, `source_id`, `metric`, `error_kind`), a count, a status, or a boolean
+— never a prompt, an output, a tool argument *value*, a retrieved snippet, or an
+error *message*. Tool argument **keys** are carried; they are schema, not content.
+See [`OBSERVABILITY.md`](OBSERVABILITY.md).
+
+## RunAggregate
+
+Written to `results/processed/<run_id>/aggregate.json`. One object per run: the
+suite metrics in three maps (`application_metrics`, `harness_metrics`,
+`placeholder_metrics`), `metric_coverage`, a `SpanSummary`, the cases whose traces
+were incomplete or infra-attributed, and two digests (`spans_sha256`,
+`metrics_sha256`).
+
 ## Conventions
 
 - **Sorted keys, stable ordering.** JSON is serialized with sorted keys and a

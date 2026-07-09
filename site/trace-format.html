@@ -31,7 +31,7 @@
   (append- and diff-friendly); plain JSON for single-object summaries. The full
   contract is <code>docs/TRACE_FORMAT.md</code>.</p>
 
-  <p><span class="status done">status: contract implemented in <code>schemas.py</code> (M1), persisted by <code>traces/storage.py</code> (M4), and produced end to end through <code>ComparisonRecord</code> / <code>ReportSummary</code> / <code>ComparisonMeta</code> (M6) — round-trip and byte-stability under test</span></p>
+  <p><span class="status done">status: contract implemented in <code>schemas.py</code> (M1), persisted by <code>traces/storage.py</code> (M4), produced end to end through <code>ComparisonRecord</code> / <code>ReportSummary</code> / <code>ComparisonMeta</code> (M6), and extended with <code>Span</code> / <code>RunAggregate</code> (M8) — round-trip and byte-stability under test</span></p>
 
   <h2>EvalCase</h2>
   <pre><code>case_id, version, prompt, input_payload, expected_properties,
@@ -169,16 +169,53 @@ records_sha256, llmreg_version</code></pre>
   two comparisons of the same two runs produce byte-identical files. No Milestone 1
   schema changed to accommodate the engine.</p>
 
+  <h2>Span (Milestone 8)</h2>
+  <pre><code>trace_id, span_id, parent_id?, name, case_id, run_id,
+start_ms, end_ms, status, attributes</code></pre>
+  <p>Written to <code>results/runs/&lt;run_id&gt;/spans.jsonl</code>. One case is one
+  trace; <code>name</code> is one of <code>request</code>, <code>model_call</code>,
+  <code>tool_call</code>, <code>retrieval</code>, <code>evaluator</code>. Ids are
+  <strong>content-addressed</strong> — <code>span_id = sha256(run_id | case_id |
+  path)[:16]</code>, where <code>path</code> is the span's position in the tree — so
+  an id is a function of where the span sits, never of when it was generated.</p>
+  <p><code>attributes["timing"]</code> says where the interval came from. The trace
+  records exactly one duration, <code>latency_ms</code>: the <code>request</code>
+  span is <code>recorded</code>, its application children get a contiguous partition
+  of that interval in trace order (<code>derived</code> — <em>ordering</em>, not
+  <em>duration</em>), and <code>evaluator</code> spans are zero-width at the
+  request's end (<code>none</code>), because scoring happens afterwards in the
+  harness.</p>
+  <p><code>status</code> is about the operation, not the score: an
+  <code>evaluator</code> span reporting <code>passed=false</code> is
+  <code>ok</code>. Errors attach to the <code>request</code> span with their origin
+  and kinds, because <code>ErrorRecord</code> names no step. <strong>Attributes hold
+  symbols, never free text</strong> — a tool name, a source id, a metric name, an
+  error kind, argument <em>keys</em>, counts, booleans; never a prompt, an output, a
+  tool argument value, a snippet, or an error message.</p>
+
+  <h2>RunAggregate (Milestone 8)</h2>
+  <pre><code>run_id, suite_id, app_version, adapter, case_count, metric_count,
+application_metrics, harness_metrics, placeholder_metrics, metric_coverage,
+spans, incomplete_trace_case_ids, infra_attributed_case_ids,
+metrics_sha256, spans_sha256, llmreg_version</code></pre>
+  <p>Written to <code>results/processed/&lt;run_id&gt;/aggregate.json</code>. Suite
+  metrics live in three maps so a broken exporter and a broken model cannot look
+  alike at a glance.</p>
+
   <h2>Relevant files</h2>
   <ul class="files">
     <li>docs/TRACE_FORMAT.md — the authoritative contract</li>
+    <li>docs/OBSERVABILITY.md — the span model and its timing rules</li>
     <li>src/llm_regression_observability/schemas.py — typed models (Milestone 1)</li>
     <li>src/llm_regression_observability/traces/storage.py — byte-stable JSONL/JSON read/write (Milestone 4)</li>
     <li>src/llm_regression_observability/executor.py — RunMeta and the run artifacts (Milestone 4)</li>
     <li>src/llm_regression_observability/comparison/aggregate.py — ComparisonMeta and the comparison artifacts (Milestone 6)</li>
+    <li>src/llm_regression_observability/observability/spans.py — Span, validate_spans (Milestone 8)</li>
+    <li>src/llm_regression_observability/observability/aggregation.py — RunAggregate (Milestone 8)</li>
     <li>tests/test_schemas.py — round-trip, validation, and byte-stability tests</li>
     <li>tests/test_run_executor.py — storage round-trip, artifact self-check, determinism</li>
     <li>tests/test_comparison.py — artifact reload, digest check, byte stability</li>
+    <li>tests/test_observability.py — tree invariants on the write and the read path</li>
   </ul>
 
   <h2>Open questions / limitations</h2>

@@ -10,8 +10,9 @@ exercised end to end:
   so the CLI itself is testable and self-contained.
 
 Milestone 2 adds ``validate-fixtures``; Milestone 4 adds ``run-suite``; Milestone
-6 adds ``compare``; Milestone 7 adds ``report``. This module stays dependency-free
-and calls no network, clock, or randomness in any scored path.
+6 adds ``compare``; Milestone 7 adds ``report``; Milestone 8 adds ``aggregate``.
+This module stays dependency-free and calls no network, clock, or randomness in
+any scored path.
 """
 
 from __future__ import annotations
@@ -345,6 +346,89 @@ def _cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+#: ``aggregate --out``: where ``aggregate.json`` lands. ``spans.jsonl`` is always
+#: written next to ``run.jsonl`` — the spans belong to the run, not to a report.
+DEFAULT_AGGREGATE_OUT = "results/processed"
+
+
+def _cmd_aggregate(args: argparse.Namespace) -> int:
+    # Imported lazily so the cheap subcommands do not pay for the evaluators.
+    from .evaluators import EvaluatorError
+    from .observability import ObservabilityError, aggregate_run_dir
+    from .schemas import SchemaError
+
+    run_dir = Path(args.run)
+    out_root = None if args.dry_run else Path(args.out)
+    try:
+        result = aggregate_run_dir(run_dir, out_root)
+    except (ObservabilityError, EvaluatorError, SchemaError, OSError) as exc:
+        print(f"error            : {exc}")
+        print("result           : FAIL")
+        return 1
+
+    agg, spans = result.aggregate, result.aggregate.spans
+    print(f"run id           : {agg.run_id}")
+    print(f"suite            : {agg.suite_id}")
+    print(f"adapter          : {agg.adapter} ({agg.app_version})")
+    print(f"cases            : {agg.case_count}")
+    print(f"metrics          : {agg.metric_count} per-case results")
+    print(
+        f"spans            : {spans.span_count} over {spans.trace_count} traces, "
+        f"depth {spans.max_depth} ({spans.error_span_count} error)"
+    )
+    for name in sorted(spans.spans_by_name):
+        errored = spans.error_spans_by_name.get(name, 0)
+        suffix = f" ({errored} error)" if errored else ""
+        print(f"  {name:24} {spans.spans_by_name[name]}{suffix}")
+    print(
+        f"recorded duration: {spans.recorded_duration_ms:.1f} ms "
+        "(request spans; child widths are derived, not measured)"
+    )
+    print()
+    print("application metrics")
+    for name in agg.application_metrics:
+        coverage = agg.metric_coverage.get(name, 0)
+        print(
+            f"  {name:32} {agg.application_metrics[name]:>12.6f} "
+            f"[{coverage}/{agg.case_count} cases]"
+        )
+    print()
+    print("harness metrics (observation quality — never application scores)")
+    for name in agg.harness_metrics:
+        print(f"  {name:32} {agg.harness_metrics[name]:>12.6f}")
+    if agg.placeholder_metrics:
+        print()
+        print("placeholder metrics (computed, claimed for nothing)")
+        for name in agg.placeholder_metrics:
+            print(f"  {name:32} {agg.placeholder_metrics[name]:>12.6f}")
+    print()
+    print(
+        f"infra-attributed : {len(agg.infra_attributed_case_ids)} case(s)"
+        + (
+            f" ({', '.join(agg.infra_attributed_case_ids)})"
+            if agg.infra_attributed_case_ids
+            else ""
+        )
+    )
+    print(
+        f"incomplete traces: {len(agg.incomplete_trace_case_ids)} case(s)"
+        + (
+            f" ({', '.join(agg.incomplete_trace_case_ids)})"
+            if agg.incomplete_trace_case_ids
+            else ""
+        )
+    )
+    print(f"sha256(spans)    : {agg.spans_sha256}")
+    print(f"sha256(metrics)  : {agg.metrics_sha256}")
+    if result.aggregate_path is None:
+        print("artifacts        : none written (--dry-run)")
+    else:
+        print(f"spans            : {result.spans_path}")
+        print(f"aggregate        : {result.aggregate_path}")
+    print("result           : PASS")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the ``llmreg`` argument parser."""
     parser = argparse.ArgumentParser(prog="llmreg", description=__summary__)
@@ -446,6 +530,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="record an infra error for a failing case instead of aborting the run",
     )
     p_run.set_defaults(func=_cmd_run_suite)
+
+    p_aggregate = sub.add_parser(
+        "aggregate",
+        help="project a run into spans and reduce it to suite-level metrics",
+    )
+    p_aggregate.add_argument(
+        "--run",
+        required=True,
+        help="run directory written by `llmreg run-suite`, "
+        "e.g. results/runs/smoke-baseline-recorded",
+    )
+    p_aggregate.add_argument(
+        "--out",
+        default=DEFAULT_AGGREGATE_OUT,
+        help=(
+            f"root for aggregate.json (default: {DEFAULT_AGGREGATE_OUT}). "
+            "spans.jsonl is always written next to run.jsonl"
+        ),
+    )
+    p_aggregate.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="aggregate and summarize without writing any artifact",
+    )
+    p_aggregate.set_defaults(func=_cmd_aggregate)
 
     p_compare = sub.add_parser(
         "compare",

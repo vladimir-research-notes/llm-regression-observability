@@ -153,6 +153,41 @@ the masking redactor is Milestone 9, and until it lands the default redactor in 
 seam is the identity function. A comparison artifact carrying a secret therefore
 produces no report at all rather than a redacted one. See [`SAFETY.md`](SAFETY.md).
 
+## Span timings assert ordering, not duration
+
+A trace records exactly one duration per case, `RunRecord.latency_ms`. The span
+tree therefore gives the `request` span that recorded interval and hands its
+application children an **equal partition** of it, in trace order. A child span's
+width is `latency_ms / step_count`; it is a slot, not a measurement, and reading it
+as "the tool call took 63 ms" is wrong. Every span carries
+`attributes["timing"]` (`recorded` / `derived` / `none`) to say which it is, but a
+consumer that ignores that field will be misled. Cross-category interleaving is not
+recorded either, so the child order — model call, then tool calls, then retrievals
+— is **canonical, not observed**: a RAG trace and an agent trace get the same
+layout. See [`OBSERVABILITY.md`](OBSERVABILITY.md).
+
+## `tool_error_rate_mean` mixes app and infra origins
+
+`tool_error_rate` is descriptive: an infra timeout fails a tool call just as an
+application bug does. Its suite mean therefore sits in `application_metrics` while
+counting both — on the smoke candidate it is `0.125`, raised equally by
+`at_more_retries` (app) and `at_infra_noise` (infra). This cannot cause a false
+regression, because the `error_rate_regression` rule reads `app_error_count` and
+never this metric. But the suite number does blur the distinction the observability
+layer otherwise enforces. It is pinned by
+`tests/test_observability.py::test_tool_error_rate_mean_mixes_origins_and_is_pinned_here`
+rather than quietly corrected, so a future fix has to be deliberate.
+
+## The observability layer has no consumer yet
+
+`spans.jsonl` and `aggregate.json` are written, validated, and read by tests and by
+humans. Nothing downstream reads them: the comparison engine (Milestone 6) and the
+report generator (Milestone 7) predate the layer and still compute their own
+latency and cost statistics. A run's harness metrics therefore do not appear in the
+report's "what the engine declined to say" section, even though that is exactly
+where they belong. Recorded in
+[`review_notes/08-observability-human-review.md`](review_notes/08-observability-human-review.md).
+
 ## Detection recall is measured on defects built to be detected
 
 The 18/18 recall in [`RESULTS.md`](RESULTS.md) is measured on synthetic fixtures

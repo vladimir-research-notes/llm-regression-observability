@@ -32,7 +32,7 @@
   is reported in native units (ms, USD, counts). Full definitions in
   <code>docs/METRICS.md</code>.</p>
 
-  <p><span class="status done">status: Milestone 5 complete — ten scorer modules, 155 tests asserting exact expected scores on all 26 fixture cases</span></p>
+  <p><span class="status done">status: Milestone 5 complete — ten scorer modules, 155 tests asserting exact expected scores on all 26 fixture cases. Milestone 8 adds suite-level reduction: named reducers, and application / harness / placeholder kept in three separate maps</span></p>
 
   <h2>By dimension</h2>
   <table>
@@ -125,7 +125,18 @@
   <code>--continue-on-error</code> record scores <code>0.777778</code>. All 52
   committed fixture records score <code>1.0</code>.</p>
 
-  <h2>Aggregation</h2>
+  <p>Milestone 8 makes that separation structural rather than advisory:
+  <code>trace_completeness</code> and <code>infra_error_rate</code> land in
+  <code>aggregate.json</code>'s <code>harness_metrics</code>, never in
+  <code>application_metrics</code>. On the smoke candidate, two of eight cases
+  errored — <code>at_more_retries</code> moves <code>error_rate</code> to
+  <code>0.125</code>, <code>at_infra_noise</code> moves <code>infra_error_rate</code>
+  to <code>0.125</code>, and neither number contains the other's case. Zeroing a
+  record's recorded latency drives <code>incomplete_trace_rate</code> up and leaves
+  <code>success_rate</code> at <code>1.0</code>: a broken harness is not a
+  regression.</p>
+
+  <h2>Aggregation (Milestone 8)</h2>
   <p>Suite-level numbers are means / sums / percentiles over per-case
   <code>MetricResult</code>s, computed with the standard library only.
   <code>pandas</code> is an optional convenience for ad-hoc summaries, never
@@ -134,14 +145,49 @@
   bytes on any platform and a threshold comparison cannot hinge on the last bit of
   a float.</p>
 
+  <p><strong>A reducer is named, not assumed.</strong> <code>mean</code>,
+  <code>sum</code>, <code>p50</code>, <code>p95</code>, <code>ratio</code>.
+  <code>ratio</code> is the fraction of cases with a <em>non-zero</em> value, which
+  is what makes <code>app_error_count → error_rate</code> mean "how many cases
+  errored" rather than "how many errors, averaged": two errors on one case out of
+  eight is a rate of <code>0.125</code> and a mean of <code>0.25</code>. A
+  <em>rate</em> is about cases, not events.</p>
+
+  <p><strong>Direction is inherited, never restated.</strong> Every reducer is
+  monotone, so a suite metric is worse in the same direction its per-case metric is
+  worse. <code>MetricSpec.direction</code> reads <code>METRIC_DIRECTION</code>; a
+  second table that could silently disagree with the first never exists.</p>
+
+  <p><strong>The summary keeps three maps, not one.</strong>
+  <code>application_metrics</code> are scores for the system under test;
+  <code>harness_metrics</code> (<code>trace_completeness</code>,
+  <code>infra_error_rate</code>, <code>infra_error_total</code>,
+  <code>incomplete_trace_rate</code>) describe whether the <em>observation</em> can
+  be trusted; <code>placeholder_metrics</code> are computed and claimed for nothing.
+  A flat map would let a broken exporter and a broken model look alike at a glance.
+  <code>metric_coverage</code> records how many cases contributed to each number,
+  because <code>evidence_coverage_mean = 1.0</code> over <strong>1 of 8 cases</strong>
+  is a fact about one case.</p>
+
+  <p><code>tool_arg_diff</code> and <code>risk_label_delta</code> are
+  <strong>pairwise</strong> — they compare two records, so a single run never emits
+  them and no suite metric reduces them. The comparison engine owns that dimension.
+  A test asserts that every per-case metric the fixtures <em>do</em> emit has a suite
+  metric, so a new scorer cannot be added and then silently vanish from the suite.</p>
+
   <h2>Relevant files</h2>
   <ul class="files">
     <li>docs/METRICS.md — definitions</li>
+    <li>docs/OBSERVABILITY.md — spans, reducers, signal classes</li>
     <li>src/llm_regression_observability/evaluators/ — one module per scorer</li>
     <li>src/llm_regression_observability/evaluators/base.py — METRIC_DIRECTION, NEVER_FLAG_METRICS</li>
     <li>src/llm_regression_observability/evaluators/registry.py — evaluate_case / evaluate_run</li>
+    <li>src/llm_regression_observability/observability/metrics.py — reducers, SUITE_METRIC_SPECS, signal classes</li>
+    <li>src/llm_regression_observability/observability/aggregation.py — RunAggregate</li>
     <li>tests/test_evaluators.py — 155 tests, exact expected scores</li>
+    <li>tests/test_observability.py — 70 tests, spans + aggregation</li>
     <li>scripts/04_score_runs.py — score a run into results/processed/&lt;run_id&gt;/metrics.jsonl</li>
+    <li>scripts/07_aggregate_runs.py — spans.jsonl + results/processed/&lt;run_id&gt;/aggregate.json</li>
   </ul>
 
   <h2>Open questions / limitations</h2>

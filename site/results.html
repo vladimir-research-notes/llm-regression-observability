@@ -26,7 +26,7 @@
 </header>
 <main>
   <h1>Results</h1>
-  <p><span class="status done">status: Milestone 7 complete — 18/18 injected defects detected with their annotated category and severity; 0 false positives on the 8 negative controls; the comparison now renders as a deterministic, redaction-gated report; 507 tests passing</span></p>
+  <p><span class="status done">status: Milestone 8 complete — 18/18 injected defects detected with their annotated category and severity; 0 false positives on the 8 negative controls; the comparison renders as a deterministic, redaction-gated report; each run now projects into a span tree and reduces to suite metrics that keep harness signals separate; 577 tests passing</span></p>
 
   <div class="callout">Everything below is measured on <strong>synthetic fixtures
   with injected defects</strong>. 18/18 recall on a suite built to be detected is
@@ -279,10 +279,57 @@ result           : PASS</code></pre>
   external host. A report attached to a pull request should not tell a third party
   that someone is reading it.</p>
 
+  <h2>Observability (Milestone 8)</h2>
+  <p><code>python3 scripts/07_aggregate_runs.py</code> projects each run into a span
+  tree and reduces it to suite metrics.</p>
+  <table>
+    <tr><th></th><th>baseline (<code>recorded</code>)</th><th>candidate (<code>scripted-regression</code>)</th></tr>
+    <tr><td>spans / traces / depth</td><td>106 / 8 / 2</td><td>105 / 8 / 2</td></tr>
+    <tr><td><code>request</code></td><td>8</td><td>8 (<strong>2 error</strong>)</td></tr>
+    <tr><td><code>model_call</code></td><td>8</td><td>8</td></tr>
+    <tr><td><code>tool_call</code></td><td>6</td><td>5 (<strong>2 error</strong>)</td></tr>
+    <tr><td><code>retrieval</code></td><td>2</td><td>3</td></tr>
+    <tr><td><code>evaluator</code></td><td>82</td><td>81</td></tr>
+    <tr><td>recorded duration (sum of <code>request</code> spans)</td><td>1690.0 ms</td><td>1940.0 ms</td></tr>
+  </table>
+  <p>The counts are ground truth, not a smoke check: <code>tu_wrong_tool</code> drops
+  a tool call (6 → 5), <code>re_unsupported_claim</code> adds an uncited source
+  (2 → 3), and the candidate's unparseable JSON emits one metric fewer — hence one
+  <code>evaluator</code> span fewer. The recorded duration equals
+  <code>run_meta.json</code>'s <code>latency_ms_total</code>: two independent paths to
+  one number.</p>
+
+  <h3>The separation this milestone exists for</h3>
+  <table>
+    <tr><th></th><th>baseline</th><th>candidate</th></tr>
+    <tr><td><code>application_metrics.success_rate</code></td><td>1.0</td><td><strong>0.375</strong></td></tr>
+    <tr><td><code>application_metrics.error_rate</code></td><td>0.0</td><td><strong>0.125</strong></td></tr>
+    <tr><td><code>application_metrics.latency_p50 / p95</code></td><td>190.0 / 300.0 ms</td><td>210.0 / 365.0 ms</td></tr>
+    <tr><td><code>harness_metrics.trace_completeness</code></td><td>1.0</td><td>1.0</td></tr>
+    <tr><td><code>harness_metrics.infra_error_rate</code></td><td>0.0</td><td><strong>0.125</strong></td></tr>
+    <tr><td><code>harness_metrics.incomplete_trace_rate</code></td><td>0.0</td><td>0.0</td></tr>
+  </table>
+  <p>Two cases errored on the candidate, and they are counted in <strong>different
+  maps</strong>. <code>at_more_retries</code> is a genuine application error and moves
+  <code>error_rate</code> alone. <code>at_infra_noise</code> has a failed tool call and
+  a red <code>request</code> span, and moves <code>infra_error_rate</code> alone; it is
+  named in <code>infra_attributed_case_ids</code>. A single flat map would have shown
+  "2 errors out of 8" and let a broken harness look exactly like a broken model.</p>
+  <p>Harness degradation is not a regression, and there is a test for that too:
+  zeroing one record's recorded latency drives <code>incomplete_trace_rate</code> to
+  <code>0.125</code> and <code>trace_completeness</code> below <code>1.0</code> while
+  <code>success_rate</code> stays at <code>1.0</code>.</p>
+  <p>What a span does <em>not</em> claim: the trace records exactly one duration per
+  case, so a child span's width is <code>latency_ms / step_count</code> — a slot, not
+  a measurement. Every span is labeled <code>recorded</code>, <code>derived</code> or
+  <code>none</code>. And spans carry identifiers and counts only: a test scans every
+  span attribute of all 52 committed fixture records against the free text of the
+  record it came from.</p>
+
   <h2>Test status</h2>
-  <p><code>python3 -m pytest -q</code> → <strong>507 passed</strong>, CPU-only and
+  <p><code>python3 -m pytest -q</code> → <strong>577 passed</strong>, CPU-only and
   offline (6 scaffold + 8 smoke + 54 schema + 25 fixtures + 46 adapters +
-  51 executor + 155 evaluators + 96 comparison + 66 reports).</p>
+  51 executor + 155 evaluators + 96 comparison + 66 reports + 70 observability).</p>
 
   <h2>What is not claimed</h2>
   <ul>
@@ -293,11 +340,14 @@ result           : PASS</code></pre>
     rate on real traffic.</li>
     <li>No live model was called. No cost was incurred. Latency is recorded, not
     measured.</li>
+    <li>A child span's width is a slot, not a measurement. The trace records one
+    duration per case; the partition asserts ordering only.</li>
   </ul>
 
   <h2>What will be reported next</h2>
-  <p>Milestone 8 adds the observability layer: spans per request / model call / tool
-  call / retrieval / evaluator, and aggregate metrics over them.</p>
+  <p>Milestone 9 adds redaction and safety hygiene: a masking redactor in
+  <code>traces/redaction.py</code>, plugged into the fail-closed gate Milestone 7
+  built, and applied before any report is written.</p>
 
   <h2>Reproduction</h2>
   <p>Every step runs today.</p>
@@ -306,6 +356,9 @@ result           : PASS</code></pre>
 llmreg run-suite --suite evals/suites/smoke.yaml --adapter scripted-regression \
     --app-version candidate --out results/runs/
 python3 scripts/04_score_runs.py                      # -> results/processed/
+
+llmreg aggregate --run results/runs/smoke-baseline-recorded
+llmreg aggregate --run results/runs/smoke-candidate-scripted-regression
 
 llmreg compare --baseline results/runs/smoke-baseline-recorded \
     --candidate results/runs/smoke-candidate-scripted-regression \
@@ -316,9 +369,10 @@ llmreg report --comparison results/comparisons/smoke-baseline-vs-candidate \
   <p>Without an editable install, use the wrappers
   <code>python3 scripts/02_run_baseline.py</code>,
   <code>03_run_candidate.py</code>, <code>04_score_runs.py</code>,
-  <code>05_compare_runs.py</code> and <code>06_generate_report.py</code>; all accept
-  <code>--dry-run</code> to execute and summarize without writing. Generated
-  <code>results/</code> contents are gitignored and regenerated on demand.</p>
+  <code>07_aggregate_runs.py</code>, <code>05_compare_runs.py</code> and
+  <code>06_generate_report.py</code>; all accept <code>--dry-run</code> to execute
+  and summarize without writing. Generated <code>results/</code> contents are
+  gitignored and regenerated on demand.</p>
   <p>All numbers are produced offline, CPU-only, and are byte-reproducible on the
   same fixtures. See <code>docs/RESULTS.md</code> and
   <code>docs/REPRODUCIBILITY.md</code>.</p>

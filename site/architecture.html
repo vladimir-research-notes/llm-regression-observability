@@ -31,14 +31,23 @@
   render into a report. Every stage writes inspectable JSON/JSONL artifacts so it
   can be re-run or examined on its own.</p>
 
-  <p><span class="status done">status: all three stages are built end to end — schemas (M1), fixtures (M2), adapters (M3), run executor (M4), evaluators (M5), the comparison engine (M6) and the report generator (M7). Observability spans follow in Milestone 8</span></p>
+  <p><span class="status done">status: all three stages are built end to end — schemas (M1), fixtures (M2), adapters (M3), run executor (M4), evaluators (M5), the comparison engine (M6), the report generator (M7) and the observability layer (M8)</span></p>
 
   <h2>Pipeline</h2>
   <pre><code>evals/suites/*.yaml   ┌─────────────────────────────────────────┐
 evals/fixtures/*  ───▶│  RUN EXECUTOR (M4)                       │──▶ results/runs/&lt;run_id&gt;/
 adapters (M3/M11)     │  case → adapter → RunRecord             │      run.jsonl, run_meta.json
-                      │  re-stamp identity, account tokens/cost │      (spans.jsonl: M8)
+                      │  re-stamp identity, account tokens/cost │
                       └────────────────┬────────────────────────┘
+                                       │
+observability (M8)    ┌────────────────▼────────────────────────┐
+spans, metrics,       │  AGGREGATION (M8)                        │──▶ results/runs/&lt;run_id&gt;/
+aggregation           │  project spans; reduce to suite metrics  │      spans.jsonl
+                      │  application | harness | placeholder     │    results/processed/&lt;run_id&gt;/
+                      └────────────────┬────────────────────────┘      aggregate.json
+                                       │  (a side branch: the
+                                       │   comparison does not
+                                       │   read these artifacts)
                                        │
 evaluators (M5)       ┌────────────────▼────────────────────────┐
 json_schema, exact,   │  COMPARISON ENGINE (M6)                  │──▶ results/comparisons/&lt;id&gt;/
@@ -83,9 +92,30 @@ observability (M8)    │  headline, per-category, worst cases,     │
   <p>Each stage persists its output before the next begins. That makes the system
   debuggable (inspect the JSONL), reproducible (re-run any stage on committed
   artifacts), and portable (a trace imported from another runtime enters at the
-  executor boundary). Observability spans — request, model call, tool call,
-  retrieval, evaluator — are emitted next to run records so a single case is fully
-  reconstructable.</p>
+  executor boundary).</p>
+
+  <h2>Observability spans (Milestone 8)</h2>
+  <p>Spans — request, model call, tool call, retrieval, evaluator — land next to
+  run records so a single case is fully reconstructable. They are a
+  <strong>projection of the recorded trace, not a live emission</strong>: nothing
+  here instruments a call, because there is no call. <code>build_case_spans()</code>
+  is a pure function of <code>(EvalCase, RunRecord, metrics)</code>, and span ids
+  are content-addressed (<code>sha256(run_id | case_id | path)</code>), so two
+  projections of one record are byte-identical.</p>
+  <p>That purity is why <code>llmreg aggregate</code>, not the executor, writes
+  <code>spans.jsonl</code>: an <code>evaluator</code> span needs a metric, and the
+  executor has never scored anything. Deriving the tree one stage later costs
+  nothing and buys one writer and a complete tree, rather than two writers and two
+  partial ones.</p>
+  <p>The trace records exactly one duration, <code>latency_ms</code>. So the
+  <code>request</code> span's interval is <em>recorded</em>; its application children
+  get a contiguous partition of that interval in trace order, labeled
+  <em>derived</em>, which asserts <strong>ordering</strong> and not
+  <strong>duration</strong>; and <code>evaluator</code> spans are zero-width at the
+  request's end, labeled <em>none</em>, because scoring happens afterwards in the
+  harness. Aggregation then reduces per-case metrics into three separate maps —
+  application scores, harness signals, declared placeholders — which is what makes a
+  degraded harness read as a telemetry problem rather than a false regression.</p>
 
   <h2>Package layout</h2>
   <pre><code>src/llm_regression_observability/
@@ -95,7 +125,7 @@ observability (M8)    │  headline, per-category, worst cases,     │
   evaluators/  exact.py json_schema.py tool_calls.py evidence.py
                refusal.py latency.py cost.py semantic_stub.py
   comparison/  baseline.py candidate.py diff.py regression.py clustering.py
-  observability/ metrics.py spans.py aggregation.py
+  observability/ spans.py metrics.py aggregation.py
   adapters/    mock_model.py recorded_model.py scripted_model.py api_stub.py
   reports/     base.py model.py markdown.py html.py</code></pre>
 

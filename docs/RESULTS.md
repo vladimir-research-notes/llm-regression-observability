@@ -1,9 +1,9 @@
 # Results
 
 > **Status: the detector works, on synthetic ground truth, and reports what it
-> found.** Milestones 4–7 are implemented, so the run artifacts, the per-case
-> scores, the **regression flags**, and the **rendered report** below are real and
-> reproducible. On the six committed fixture suites the comparison engine detects
+> found.** Milestones 4–8 are implemented, so the run artifacts, the per-case
+> scores, the **regression flags**, the **rendered report**, and the **spans and
+> suite metrics** below are real and reproducible. On the six committed fixture suites the comparison engine detects
 > **18 of 18 injected defects** with the category and severity their ground truth
 > annotates, and raises **0 false positives** on the 8 negative controls.
 > Everything on this page is measured on synthetic fixtures and does not
@@ -213,13 +213,14 @@ its support) rather than the `critical` reserved for a claim the model invented.
 
 **Reproducibility.** Two runs on the same fixtures, in separate processes and
 into different output roots, produce byte-identical `run.jsonl`, `run_meta.json`,
-`metrics.jsonl`, `comparison.jsonl`, `summary.json`, `comparison_meta.json`, and
-`regression_report.md` / `.html` (verified by the digest check each writer
-performs, and by
+`metrics.jsonl`, `spans.jsonl`, `aggregate.json`, `comparison.jsonl`,
+`summary.json`, `comparison_meta.json`, and `regression_report.md` / `.html`
+(verified by the digest check each writer performs, and by
 `tests/test_run_executor.py::test_two_runs_on_the_same_inputs_are_byte_identical`,
 `tests/test_evaluators.py::test_scoring_is_byte_stable_across_calls`,
 `tests/test_comparison.py::test_two_comparisons_of_the_same_runs_are_byte_identical`,
-and `tests/test_reports.py::test_writing_twice_produces_byte_identical_files`).
+`tests/test_reports.py::test_writing_twice_produces_byte_identical_files`, and
+`tests/test_observability.py::test_two_aggregations_of_the_same_run_are_byte_identical`).
 
 ## The report (Milestone 7)
 
@@ -270,11 +271,76 @@ The HTML rendering is one self-contained file: no `<link>`, no `<script>`, no
 `<img>`, no `url()`, no external host. A report attached to a pull request should
 not tell a third party that someone is reading it.
 
+## Observability (Milestone 8)
+
+`python3 scripts/07_aggregate_runs.py` projects each run into a span tree and
+reduces it to suite metrics, writing `results/runs/<run_id>/spans.jsonl` and
+`results/processed/<run_id>/aggregate.json`.
+
+| | baseline (`recorded`) | candidate (`scripted-regression`) |
+| --- | --- | --- |
+| spans / traces / depth | 106 / 8 / 2 | 105 / 8 / 2 |
+| `request` | 8 | 8 (**2 error**) |
+| `model_call` | 8 | 8 |
+| `tool_call` | 6 | 5 (**2 error**) |
+| `retrieval` | 2 | 3 |
+| `evaluator` | 82 | 81 |
+| recorded duration (sum of `request` spans) | 1690.0 ms | 1940.0 ms |
+
+The counts are ground truth, not a smoke check: `tu_wrong_tool` drops a tool call
+(6 → 5), `re_unsupported_claim` adds an uncited source (2 → 3), and the candidate's
+unparseable JSON emits one metric fewer, hence one `evaluator` span fewer. The
+recorded duration equals `run_meta.json`'s `latency_ms_total` — two independent
+paths to one number.
+
+### The separation this milestone exists for
+
+`aggregate.json` keeps three maps. Nothing in `NEVER_FLAG_METRICS` reaches the
+application map; a test asserts it.
+
+| | baseline | candidate |
+| --- | --- | --- |
+| `application_metrics.success_rate` | 1.0 | **0.375** |
+| `application_metrics.error_rate` | 0.0 | **0.125** |
+| `application_metrics.latency_p50 / p95` | 190.0 / 300.0 ms | 210.0 / 365.0 ms |
+| `harness_metrics.trace_completeness` | 1.0 | 1.0 |
+| `harness_metrics.infra_error_rate` | 0.0 | **0.125** |
+| `harness_metrics.incomplete_trace_rate` | 0.0 | 0.0 |
+| `placeholder_metrics.explanation_quality_mean` | 0.0 | 0.0 |
+
+Two cases errored on the candidate, and they are counted in **different maps**.
+`at_more_retries` is a genuine application error and moves `error_rate` alone.
+`at_infra_noise` has a failed tool call and a red `request` span, and moves
+`infra_error_rate` alone; it is named in `infra_attributed_case_ids`. A single flat
+map would have shown "2 errors out of 8" and let a broken harness look exactly like
+a broken model.
+
+Harness degradation is not a regression, and there is a test for that too: zeroing
+one record's recorded latency drives `incomplete_trace_rate` to `0.125` and
+`trace_completeness` below `1.0` while `success_rate` stays at `1.0`.
+
+`metric_coverage` records how many cases answered each metric, because
+`evidence_coverage_mean = 1.0` over **1 of 8 cases** is a fact about one case.
+
+### What a span does and does not claim
+
+The trace records exactly one duration per case, `RunRecord.latency_ms`. So the
+`request` span's interval is `recorded`; its children get a contiguous partition of
+that interval in trace order, labeled `derived`, which asserts **ordering** and not
+**duration**; `evaluator` spans are zero-width at the request's end, labeled `none`,
+because scoring happens afterwards in the harness. A derived width is
+`latency_ms / step_count` and means nothing on its own.
+
+Spans carry identifiers, counts and statuses — `tool_name`, `source_id`, `metric`,
+`error_kind`, argument **keys** — and never a prompt, an output, a tool argument
+value, a snippet, or an error message. A test scans every span attribute of all 52
+committed fixture records against the free text of the record it came from.
+
 ## Test status
 
-`python3 -m pytest -q` → **507 passed**, CPU-only and offline (6 scaffold +
+`python3 -m pytest -q` → **577 passed**, CPU-only and offline (6 scaffold +
 8 smoke + 54 schema + 25 fixtures + 46 adapters + 51 executor + 155 evaluators +
-96 comparison + 66 reports).
+96 comparison + 66 reports + 70 observability).
 
 ## What is not claimed
 
@@ -289,8 +355,9 @@ not tell a third party that someone is reading it.
 
 ## What will be reported here next
 
-Milestone 8 adds the observability layer: spans per request / model call / tool
-call / retrieval / evaluator, and aggregate metrics over them.
+Milestone 9 adds redaction and safety hygiene: a masking redactor in
+`traces/redaction.py`, plugged into the fail-closed gate Milestone 7 built, and
+applied before any report is written.
 
 ## Reproduction
 

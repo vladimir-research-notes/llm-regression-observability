@@ -64,7 +64,7 @@ python3 -m pytest -q                         # CPU-only, offline test suite
 ./scripts/serve_site.sh                      # docs website on http://localhost:9001
 ```
 
-The end-to-end flow. Every step runs today (Milestones 2, 4, 5, 6 and 7):
+The end-to-end flow. Every step runs today (Milestones 2, 4, 5, 6, 7 and 8):
 
 ```bash
 llmreg validate-fixtures evals/fixtures
@@ -73,17 +73,25 @@ llmreg run-suite --suite evals/suites/smoke.yaml --adapter recorded \
 llmreg run-suite --suite evals/suites/smoke.yaml --adapter scripted-regression \
     --app-version candidate --out results/runs/
 
+llmreg aggregate --run results/runs/<run_id>        # spans.jsonl + aggregate.json
 llmreg compare --baseline results/runs/<baseline> --candidate results/runs/<candidate> \
     --out results/comparisons/                       # add --fail-on critical for CI
 llmreg report --comparison results/comparisons/<id> \
     --out results/reports/regression_report.md --format both
 ```
 
+`llmreg aggregate` projects a run into an OpenTelemetry-*shaped* span tree and
+reduces its per-case metrics to suite numbers, keeping **application scores**,
+**harness signals** (`trace_completeness`, `infra_error_rate`) and declared
+**placeholders** in three separate maps — so a degraded harness reads as a
+telemetry problem, not a false regression.
+
 Without an editable install, the same steps are available as numbered wrappers:
 `02_run_baseline.py`, `03_run_candidate.py`, `04_score_runs.py`,
-`05_compare_runs.py`, `06_generate_report.py` (all accept `--dry-run`). Every
-artifact they write is byte-identical across runs. A committed sample report lives
-at [`docs/examples/regression_report.md`](docs/examples/regression_report.md), kept
+`07_aggregate_runs.py`, `05_compare_runs.py`, `06_generate_report.py` (all accept
+`--dry-run`). Every artifact they write is byte-identical across runs. A committed
+sample report lives at
+[`docs/examples/regression_report.md`](docs/examples/regression_report.md), kept
 honest by a test that regenerates it from the fixtures.
 
 ## Design constraints
