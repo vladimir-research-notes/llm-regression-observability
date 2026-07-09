@@ -94,13 +94,42 @@ Keywords outside it (`$ref`, `allOf`, `format`, …) are **surfaced** in
 an invalid document score as valid. A test asserts every committed fixture schema
 uses only supported keywords.
 
-## Attribution is heuristic
+## Attribution is heuristic, and infra attribution can mask a real regression
 
 The application-vs-infrastructure attribution is rule-based and conservative:
 `errors.attribution()` returns `infra` only when a record errored and *every*
 error was infra-origin, so one app error makes the whole record `app`. It reduces
 false positives from harness noise but can misattribute an unusual failure. It
 reports its confidence rather than claiming certainty.
+
+The comparison engine acts on that verdict: when a candidate record is
+`infra`-attributed, **every** flag it would have raised is withheld, not just the
+error-rate one. That is the right call when the harness timed out — a timeout
+inflates latency, fails tool calls, and truncates output, and blaming the
+application for any of it would be wrong. But it means **a genuine application
+regression that co-occurs with an infra error on the same case is masked**. The
+engine does not hide this: the case appears in `comparison_meta.json` under
+`infra_attributed_case_ids`, and the withheld categories under
+`infra_suppressed_categories`, so a reader can see exactly what was not said.
+Re-running the suite is the remedy — an infra error should not reproduce, and an
+application regression will.
+
+## A regression flag is a threshold crossing, not a judgment of importance
+
+Severity is assigned by rule (`critical` for correctness lost, `warn` for quality
+or efficiency degraded), not by impact. A `critical` flag on a synthetic fixture
+is not a claim that the change matters to any user. Likewise, `flags_by_category`
+counts findings after collapsing one flag per (case, category); it is not a count
+of everything that moved. The per-case `ComparisonRecord` deltas and the flag
+explanations carry the detail.
+
+## Detection recall is measured on defects built to be detected
+
+The 18/18 recall in [`RESULTS.md`](RESULTS.md) is measured on synthetic fixtures
+whose defects were written alongside the rules that catch them. It demonstrates
+that the rules fire as specified, that the negative controls do not fire, and that
+the pipeline is byte-reproducible. It is **not** evidence of recall on real
+regressions in real systems, and no such claim is made.
 
 ## No production deployment
 

@@ -159,14 +159,14 @@ Conventions the scorers hold to:
 
 ## ComparisonRecord
 
-One record per paired case. Written to
-`results/comparisons/<id>/comparison.jsonl`.
+One record per **paired** case, in the baseline's run order. Written to
+`results/comparisons/<comparison_id>/comparison.jsonl` by `llmreg compare`.
 
 ```
 case_id: str
 baseline_run_id: str
 candidate_run_id: str
-changed_fields: list[str]
+changed_fields: list[str]             # behavioral fields only (see below)
 score_delta: float                    # final-answer score change
 latency_delta: float                  # ms
 cost_delta: float                     # usd
@@ -178,36 +178,126 @@ regression_flags: list[RegressionFlag]
 human_readable_summary: str
 ```
 
+`changed_fields` lists only the fields that describe *what the application did*
+(`comparison.BEHAVIORAL_FIELDS`). Run identity (`run_id`, `app_version`) and
+provenance (`model_id`, `prompt_version`, `tool_version`, `timestamp`) differ
+between every baseline and candidate — that is what a comparison *is* — and
+reporting them would bury the one field that matters.
+
+Each delta is `candidate - baseline` on that dimension's headline metric, and
+`0.0` when the case never declared the dimension. **A zero delta is not a claim
+that nothing changed**; `regression_flags` is the claim.
+
+| Field | Metric |
+| --- | --- |
+| `score_delta` | `task_success` |
+| `json_validity_delta` | `json_schema_validity`, else `json_parse_success` |
+| `tool_call_delta` | `tool_sequence_similarity`, else `allowed_tool_ratio` |
+| `refusal_delta` | `refusal_match`, else `risk_label_match` |
+| `evidence_delta` | `evidence_coverage` |
+| `latency_delta` | recorded `latency_ms` (native units) |
+| `cost_delta` | recorded `cost_estimate_usd` (native units) |
+
+Tool-argument drift and a refusal-decision flip move no delta — they are pairwise
+signals, and they surface as flags.
+
 ### RegressionFlag
 
 ```
 category: str                         # see REGRESSION_DETECTION.md
 severity: str                         # info | warn | critical
 metric: str                           # metric that triggered the flag
-observed: float
-threshold: float
+observed: float                       # the measured value the rule tested
+threshold: float                      # the value it had to stay within
 explanation: str
 attribution: str                      # app | infra
 ```
 
+At most **one flag per (case, category)**: when several conditions fire in one
+category, they collapse into the strongest, which names the rest in its
+`explanation`. `observed` and `threshold` are in the rule's own units — a fraction
+for latency and cost (relative change), a metric value otherwise — and are always
+finite (`comparison.regression._finite` rejects `inf`/`nan`, which `json.dumps`
+would render as the non-standard `Infinity`).
+
+The comparison engine emits only `warn` and `critical`; `info` is reserved for the
+report generator to annotate sub-threshold movement.
+
 ## ReportSummary
 
 Single JSON object per comparison. Written to
-`results/comparisons/<id>/summary.json` and consumed by the report generator.
+`results/comparisons/<comparison_id>/summary.json` and consumed by the report
+generator. Percentiles and totals are computed over the **paired** cases only.
 
 ```
 comparison_id: str
 suite_id: str
 baseline_version: str
 candidate_version: str
-case_count: int
-regressed_case_count: int
+case_count: int                       # paired cases
+regressed_case_count: int             # paired cases with >= 1 flag
 flags_by_category: dict[str, int]
 latency_p50_delta: float
 latency_p95_delta: float
 cost_total_delta: float
 clusters: list[FailureCluster]        # grouped failures
 ```
+
+### FailureCluster
+
+```
+cluster_id: str                       # "<category>__<failure signature>"
+label: str                            # human phrase + case count
+category: str
+case_ids: list[str]                   # sorted
+```
+
+`cluster_id` is derived from content, not from an ordinal, so adding a case to a
+run never renumbers the clusters an earlier report referred to.
+
+## ComparisonMeta
+
+Sidecar for one comparison. Written to
+`results/comparisons/<comparison_id>/comparison_meta.json` by `llmreg compare`,
+alongside the `comparison.jsonl` it describes.
+
+```
+comparison_id: str
+suite_id: str
+suite_path: str                       # repo-relative
+baseline_run_id: str
+candidate_run_id: str
+baseline_version: str
+candidate_version: str
+baseline_adapter: str
+candidate_adapter: str
+paired_case_count: int
+unpaired_baseline_case_ids: list[str]
+unpaired_candidate_case_ids: list[str]
+infra_attributed_case_ids: list[str]
+infra_suppressed_categories: dict[str, list[str]]   # case_id -> withheld flags
+cost_comparable: bool                 # false when the runs used different CostModels
+comparability_notes: list[str]
+thresholds: dict[str, float]          # the values every rule compared against
+flag_count: int
+critical_count: int
+warn_count: int
+baseline_latency_p50: float
+baseline_latency_p95: float
+candidate_latency_p50: float
+candidate_latency_p95: float
+baseline_cost_total_usd: float
+candidate_cost_total_usd: float
+records_sha256: str                   # SHA-256 of comparison.jsonl's bytes
+llmreg_version: str
+```
+
+`summary.json` answers "what regressed". This file answers "what did the engine
+decline to say, and why". An **unpaired** case and an **infra-suppressed** case
+are both invisible in the summary's counts, and both are exactly the kind of
+silence that makes an evaluation harness lie — so they get a file. A comparison
+with an empty summary and a populated sidecar has found nothing and hidden a lot,
+and the two files together make that impossible to miss.
 
 ## Conventions
 

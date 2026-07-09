@@ -1,16 +1,136 @@
 # Results
 
-> **Status: partial.** The run executor (Milestone 4) and the evaluators
-> (Milestone 5) exist, so the *run artifacts* and the *per-case scores* below are
-> real and reproducible. No regression has been **flagged** yet: pairing baseline
-> against candidate, computing deltas, and raising `RegressionFlag`s is Milestone
-> 6. Nothing on this page claims otherwise.
+> **Status: the detector works, on synthetic ground truth.** Milestones 4–6 are
+> implemented, so the run artifacts, the per-case scores, and the **regression
+> flags** below are real and reproducible. On the six committed fixture suites the
+> comparison engine detects **18 of 18 injected defects** with the category and
+> severity their ground truth annotates, and raises **0 false positives** on the 8
+> negative controls. Everything on this page is measured on synthetic fixtures and
+> does not generalize to production traffic — see
+> [`LIMITATIONS.md`](LIMITATIONS.md).
+
+## Headline: detection on ground truth (Milestone 6)
+
+Each fixture suite ships `expected.json` — an oracle stating, per case, which
+regression (if any) a correct detector must raise, at which severity, attributed
+to app or infra. `tests/test_comparison.py` asserts the engine against it.
+
+| | recorded candidate | scripted candidate |
+| --- | --- | --- |
+| injected defects | 18 | 18 |
+| detected with the annotated category | **18** | **18** |
+| detected with the annotated category *and* severity | **18** | 14 |
+| missed | 0 | 0 |
+| negative controls | 8 | 8 |
+| false positives on controls | **0** | **0** |
+
+Two candidate generators, two purposes. The **recorded** candidate is the
+committed `data/fixtures/<suite>/candidate.jsonl` — the defect the fixture author
+wrote, and the oracle's exact referent. The **scripted** candidate is built at run
+time by `ScriptedRegressionAdapter`, which injects one *representative* defect per
+regression category into the clean baseline.
+
+The four severity divergences on the scripted path are a property of that adapter,
+not a detector failure: its representative injector is harsher than the recorded
+defect for `tu_arg_drift`, `tu_order_change` (it drops a tool rather than drifting
+an argument or reordering) and for `re_missing_evidence`, `re_wrong_source` (it
+fabricates a claim rather than dropping a citation). Category recall is 18/18 on
+both paths. The divergence is pinned in
+`tests/test_comparison.py::SCRIPTED_SEVERITY_DIVERGENCE` rather than described.
+
+### Flags raised on the recorded fixture pairs
+
+19 flags across 18 defect cases — one case raises two, and it should.
+
+| Category | Flags | Cases |
+| --- | --- | --- |
+| `structured_output_regression` | 4 | `sj_invalid_json`, `sj_missing_required`, `sj_wrong_type`, `sj_extra_field` |
+| `tool_call_regression` | 4 | `tu_wrong_tool`, `tu_missing_tool`, `tu_arg_drift`, `tu_order_change` |
+| `evidence_grounding_regression` | 3 | `re_unsupported_claim`, `re_missing_evidence`, `re_wrong_source` |
+| `refusal_behavior_shift` | 3 | `rb_overrefuse`, `rb_underrefuse`, `rb_risk_label` |
+| `latency_regression` | 1 | `lc_latency_spike` |
+| `cost_regression` | 1 | `lc_cost_spike` |
+| `error_rate_regression` | 2 | `at_more_retries`, `at_failed_tool` |
+| `final_answer_regression` | 1 | `at_failed_tool` |
+
+`at_failed_tool` is the only case with two flags. Its candidate's `compute` tool
+fails (`error_rate_regression`, warn) **and** its answer degrades from "done" to
+"partial" (`final_answer_regression`, critical). The fixture note says exactly
+that. Two things went wrong; clustering reports them as two findings on one case.
+
+Every other defect raises exactly one flag, because a `task_success` drop is
+attributed to the category that owns the property that failed. Without that rule
+each of the 18 defects would also report a `final_answer_regression` — see
+[`REGRESSION_DETECTION.md`](REGRESSION_DETECTION.md), "One defect, one signal".
+
+### The three rows that carry the argument
+
+- **`lc_latency_spike` scores `task_success = 1` on both sides.** The answer is
+  correct and byte-identical; only the process got slower (150 → 420 ms). A
+  string-diff test sees nothing. The engine raises `latency_regression`.
+- **`at_infra_noise` has a failed tool call and a red trace, and raises nothing.**
+  Its error is `origin=infra`, so the application is not blamed. The case is named
+  in `comparison_meta.json` under `infra_attributed_case_ids`, not dropped —
+  research question 9.
+- **`sj_control_reorder` changes `final_output` and regresses nothing.** The JSON
+  keys were reordered; every metric is identical on both sides;
+  `changed_fields = ["final_output"]` and `regression_flags = []`. A regression is
+  a behavioral property getting worse, not a string changing.
+
+### Clustering
+
+16 clusters over the 19 flags on the recorded pairs. Grouping is by
+`(category, failure signature)`; the signature carries the offending symbol.
+
+| Cluster | Cases |
+| --- | --- |
+| `structured_output_regression__schema_invalid` | `sj_extra_field`, `sj_missing_required`, `sj_wrong_type` |
+| `structured_output_regression__parse_failure` | `sj_invalid_json` |
+| `evidence_grounding_regression__coverage_drop` | `re_missing_evidence`, `re_wrong_source` |
+| `tool_call_regression__disallowed_tool-shell_exec` | `tu_wrong_tool` |
+| `tool_call_regression__missing_tool-lookup` | `tu_missing_tool` |
+| `error_rate_regression__app_error-tool_retry` | `at_more_retries` |
+| `error_rate_regression__app_error-tool_error` | `at_failed_tool` |
+| `final_answer_regression__property-final_answer` | `at_failed_tool` |
+
+Three cases that each fail schema validation are one finding, not three — even
+though they fail different keywords (`required`, `type`, `additionalProperties`),
+which the flag explanation names. A parse failure is a *different* root cause from
+a validity failure, so `sj_invalid_json` clusters alone. `at_failed_tool` appears
+in two clusters: it really did fail in two ways.
+
+## The smoke pipeline, end to end
+
+`scripts/02_run_baseline.py` → `scripts/03_run_candidate.py` →
+`scripts/04_score_runs.py` → `scripts/05_compare_runs.py`, all offline.
+
+The eight-case smoke suite is the cross-section where the scripted adapter's
+injected defect and the fixture's recorded one agree, so category **and** severity
+are both asserted:
+
+| case | flag | severity |
+| --- | --- | --- |
+| `sj_invalid_json` | `structured_output_regression` | critical |
+| `tu_wrong_tool` | `tool_call_regression` | critical |
+| `re_unsupported_claim` | `evidence_grounding_regression` | critical |
+| `rb_underrefuse` | `refusal_behavior_shift` | critical |
+| `lc_latency_spike` | `latency_regression` | warn |
+| `at_more_retries` | `error_rate_regression` | warn |
+| `at_infra_noise` | — (infra-attributed, surfaced not flagged) | — |
+| `sj_control_reorder` | — (control) | — |
+
+6 cases regressed, 6 flags (4 critical, 2 warn), 0 false positives, 1
+infra-attributed case, 6 clusters. Suite-level: latency p50 `+20.0 ms`, p95
+`+65.0 ms`, cost total delta `$0.000000` (the smoke suite carries no
+`cost_regression` case, and the scripted injectors mutate outputs without
+re-estimating tokens).
+
+`llmreg compare --fail-on critical` exits 1 here (4 critical flags), which is the
+CI regression gate. The default `--fail-on none` exits 0 and reports.
 
 ## Run artifacts (Milestone 4)
 
-Produced offline on the eight-case smoke suite by
-`scripts/02_run_baseline.py` and `scripts/03_run_candidate.py`. These are counts
-read off `results/runs/<run_id>/run_meta.json`, not scores.
+Counts read off `results/runs/<run_id>/run_meta.json`, not scores.
 
 | | baseline (`recorded`) | candidate (`scripted-regression`) | delta |
 | --- | --- | --- | --- |
@@ -23,15 +143,12 @@ read off `results/runs/<run_id>/run_meta.json`, not scores.
 | retrieval sources | 2 | 3 | +1 |
 | errors (app / infra) | 0 / 0 | 1 / 1 | +1 / +1 |
 
-`sha256(run.jsonl)`: baseline `ee23bfde0137104f…`, candidate `b486ff9e6dabd553…`.
-
 Every delta traces to exactly one injected defect: `+250 ms` from
 `lc_latency_spike`, the dropped tool call from `tu_wrong_tool`, the added
 (unsupported) source from `re_unsupported_claim`, the `app` error from
 `at_more_retries`, the `infra` error from `at_infra_noise`. `sj_invalid_json`
 and `rb_underrefuse` change `parsed_output` rather than a count, and
-`sj_control_reorder` is a control and changes nothing. Cost is unchanged because
-the smoke suite carries no `cost_regression` case.
+`sj_control_reorder` is a control and changes nothing.
 
 The candidate's token counts equal the baseline's because the scripted injectors
 mutate outputs without re-estimating tokens — a known limitation of the
@@ -69,26 +186,10 @@ Suite-level, baseline → candidate:
 | infra error rate (never flags) | 0.0000 | 0.1250 |
 | trace completeness | 1.0 on all 8 | 1.0 on all 8 |
 
-Three rows carry the argument of this project:
-
-- **`lc_latency_spike` scores `task_success = 1` on both sides.** The answer is
-  correct and identical; only the process got slower. A string-diff test sees
-  nothing. The latency percentiles see `+65 ms` at p95.
-- **`at_infra_noise` scores `task_success = 1` and `app_error_count = 0`** on the
-  candidate, despite a failed tool call and a red trace. The error is
-  `origin = infra`, so the application is not blamed — research question 9.
-- **`sj_control_reorder` moves nothing.** The raw JSON string changed (keys were
-  reordered); every metric is identical on both sides. A regression is a
-  behavioral property getting worse, not a string changing.
-
-The remaining five cases each move exactly the metric their injected defect
-targets, and no other.
-
 ### Exact scores on the fixture suites
 
 `tests/test_evaluators.py` asserts the full metric map for **all 26 cases × both
-sides** of the six fixture suites, not just the smoke cross-section. A sample of
-the literals it pins:
+sides** of the six fixture suites. A sample of the literals it pins:
 
 | fixture case | metric | baseline | candidate |
 | --- | --- | --- | --- |
@@ -107,40 +208,41 @@ the literals it pins:
 *does* exist, so `citation_correctness` stays `1.0`. The defect surfaces as
 `evidence_coverage 1.0 → 0.0` and `unsupported_claim_count 0 → 1`. Splitting
 "the source is real" from "the source supports the claim" is what makes that
-visible.
+visible — and comparing claim *texts* is what keeps it a `warn` (the claim lost
+its support) rather than the `critical` reserved for a claim the model invented.
 
 **Reproducibility.** Two runs on the same fixtures, in separate processes and
 into different output roots, produce byte-identical `run.jsonl`, `run_meta.json`,
-and `metrics.jsonl` (verified by `diff -r`, by the digest check `write_run()`
-performs after every write, and by
-`tests/test_run_executor.py::test_two_runs_on_the_same_inputs_are_byte_identical`
-and
-`tests/test_evaluators.py::test_scoring_is_byte_stable_across_calls`).
+`metrics.jsonl`, `comparison.jsonl`, `summary.json`, and `comparison_meta.json`
+(verified by the digest check each writer performs, and by
+`tests/test_run_executor.py::test_two_runs_on_the_same_inputs_are_byte_identical`,
+`tests/test_evaluators.py::test_scoring_is_byte_stable_across_calls`, and
+`tests/test_comparison.py::test_two_comparisons_of_the_same_runs_are_byte_identical`).
 
 ## Test status
 
-`python3 -m pytest -q` → **345 passed**, CPU-only and offline (14 scaffold +
-54 schema + 25 fixtures + 46 adapters + 51 executor + 155 evaluators).
+`python3 -m pytest -q` → **441 passed**, CPU-only and offline (6 scaffold +
+8 smoke + 54 schema + 25 fixtures + 46 adapters + 51 executor + 155 evaluators +
+96 comparison).
 
-## What will be reported here
+## What is not claimed
 
-After Milestone 6 pairs the two runs, this document will add:
+- These are **synthetic fixtures with injected defects**. 18/18 recall on a suite
+  built to be detected is evidence that the rules fire as specified, not evidence
+  of recall on real regressions.
+- The eight controls test the specific false positives the fixtures encode (a key
+  reorder, sub-threshold drift, harness noise). They are not a false-positive rate
+  on real traffic.
+- No live model was called. No cost was incurred. Latency is recorded, not
+  measured.
 
-- **Headline** — number of cases, number regressed, flags by category.
-- **Detection of injected regressions** — the scripted adapter injects known
-  defects; a table of detected vs injected per category (the detector's recall on
-  ground truth) and the false-positive count on the eight negative controls.
-- **Application vs. harness noise** — how many degradations were attributed to
-  infrastructure and excluded from flags.
-- **Clusters** — correlated failures grouped so one root cause reads as one
-  finding.
+## What will be reported here next
+
+Milestone 7 renders these comparison records into a Markdown/HTML report:
+headline, per-category breakdown, worst regressions, and representative examples.
 
 ## Reproduction
 
 The exact commands that generate these numbers are in
 [`REPRODUCIBILITY.md`](REPRODUCIBILITY.md). All numbers are produced offline,
 CPU-only, and are byte-reproducible on the same fixtures.
-
-_No **flagged** regression is reported yet. The scores above are real, from real
-runs over committed fixtures; every claim about a regression being *detected*
-(with a severity, a threshold, and an attribution) waits on Milestone 6._

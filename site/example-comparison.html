@@ -26,57 +26,139 @@
 </header>
 <main>
   <h1>Example comparison</h1>
-  <p class="lede">An illustrative walk-through of a single structured-output case
-  through the pipeline. The numbers below are a hand-authored illustration of the
-  intended shape; real, reproducible numbers land on the
-  <a href="results.html">Results</a> page after the smoke run (Milestone 12).</p>
+  <p class="lede">One case through the whole pipeline. Every number and every
+  string on this page is copied from the artifacts that
+  <code>python3 scripts/05_compare_runs.py</code> writes — nothing here is
+  hand-authored or illustrative.</p>
 
-  <p><span class="status scaffold">status: illustrative — replaced by real smoke output at Milestone 12</span></p>
+  <p><span class="status done">status: real output, Milestone 6 — copied from <code>results/comparisons/smoke-baseline-vs-candidate/</code></span></p>
 
   <h2>The case</h2>
-  <pre><code>case_id: structured_json/order_summary
-prompt:  "Return an order summary as JSON."
-json_schema: { required: [order_id, total_usd, items], ... }</code></pre>
+  <p>From <code>evals/fixtures/structured_json/cases.json</code>. Expected behavior
+  is declared as <em>properties</em>, never as a golden string.</p>
+  <pre><code>case_id:  sj_invalid_json
+prompt:   "Summarize the synthetic report as a JSON object with title, sentiment, and score."
+json_schema:
+  type: object,  additionalProperties: false
+  required: [title, sentiment, score]
+  properties:
+    title:     {type: string}
+    sentiment: {type: string, enum: [positive, neutral, negative]}
+    score:     {type: number}
+expected_properties: {json_parses: true, json_schema_valid: true}</code></pre>
 
   <h2>Baseline vs candidate output</h2>
-  <pre><code>baseline  (recorded):   {"order_id":"A-1","total_usd":42.0,"items":3}      # valid
-candidate (scripted):   {"order_id":"A-1","total":"42.0","items":3}       # 'total_usd' missing, wrong type</code></pre>
+  <p>The baseline is replayed by the <code>recorded</code> adapter; the candidate is
+  built by the <code>scripted-regression</code> adapter, which injects exactly one
+  mechanical defect — here, it drops the closing brace.</p>
+  <pre><code>baseline  (recorded):   {"title":"Q2 revenue summary","sentiment":"neutral","score":0.5}
+candidate (scripted):   {"title":"Q2 revenue summary","sentiment":"neutral","score":0.5
+
+changed_fields: ["final_output", "parsed_output"]
+latency_ms: 180.0 -> 180.0        cost_estimate_usd: 0.0015 -> 0.0015</code></pre>
 
   <h2>Scored deltas</h2>
+  <p>Both sides are scored independently by the Milestone 5 evaluators; the
+  comparison engine reads the two metric maps.</p>
   <table>
     <tr><th>Metric</th><th>Baseline</th><th>Candidate</th><th>Delta</th></tr>
-    <tr><td>json_parse_success</td><td>1.0</td><td>1.0</td><td>0.0</td></tr>
-    <tr><td>json_schema_validity</td><td>1.0</td><td>0.0</td><td><strong>-1.0</strong></td></tr>
-    <tr><td>field_diff_count</td><td>0</td><td>2</td><td>+2</td></tr>
-    <tr><td>latency_ms</td><td>180</td><td>190</td><td>+10</td></tr>
+    <tr><td><code>json_parse_success</code></td><td>1.0</td><td>0.0</td><td><strong>−1.0</strong></td></tr>
+    <tr><td><code>json_schema_validity</code></td><td>1.0</td><td>0.0</td><td><strong>−1.0</strong></td></tr>
+    <tr><td><code>task_success</code></td><td>1.0</td><td>0.0</td><td><strong>−1.0</strong></td></tr>
+    <tr><td><code>field_diff_count</code></td><td>0</td><td colspan="2">not emitted — a field diff against an object that does not exist would count one defect twice</td></tr>
+    <tr><td><code>latency_ms</code></td><td>180.0</td><td>180.0</td><td>0.0</td></tr>
+    <tr><td><code>trace_completeness</code></td><td>1.0</td><td>1.0</td><td>0.0</td></tr>
   </table>
+  <p><code>trace_completeness</code> stays at <code>1.0</code> deliberately. A
+  candidate whose JSON genuinely broke has <code>parsed_output = null</code>, which
+  is a <em>correct trace of a real failure</em>, not an incomplete one. Conflating
+  the two would make a structured-output regression indistinguishable from a
+  harness bug.</p>
 
-  <h2>Resulting flag</h2>
-  <pre><code>RegressionFlag(
-  category="structured_output_regression",
-  severity="critical",
-  metric="json_schema_validity",
-  observed=0.0, threshold=1.0,
-  explanation="required field 'total_usd' missing; 'total' has wrong type (str, expected number)",
-  attribution="app"
-)</code></pre>
-  <p>The latency move (+10&nbsp;ms) does <em>not</em> flag: it fails the absolute
-  (+50&nbsp;ms) and relative (+25%) minimums. Only the schema regression fires, so
-  the report leads with the correctness loss, not the noise.</p>
+  <h2>The resulting flag</h2>
+  <p>Verbatim from <code>comparison.jsonl</code>:</p>
+  <pre><code>{
+  "category": "structured_output_regression",
+  "severity": "critical",
+  "metric": "json_parse_success",
+  "observed": 0.0,
+  "threshold": 1.0,
+  "attribution": "app",
+  "explanation": "final_output parsed as JSON at baseline and no longer does;
+                  also: output was schema-valid at baseline and is not"
+}</code></pre>
 
-  <h2>Report excerpt (intended shape)</h2>
-  <pre><code>## Headline
-1 case regressed of 1 — structured_output_regression (critical) ×1
+  <p>Three things did <em>not</em> happen, and each is a design decision:</p>
+  <ul>
+    <li><strong>Two triggers, one flag.</strong> The parse failure and the validity
+    failure both fired. They collapse into a single flag carrying the stronger
+    metric, naming the other in its explanation — so
+    <code>flags_by_category</code> counts findings, not symptoms.</li>
+    <li><strong>No <code>final_answer_regression</code>.</strong>
+    <code>task_success</code> dropped 1&nbsp;→&nbsp;0, but the properties that
+    failed (<code>json_parses</code>, <code>json_schema_valid</code>) are
+    <em>owned</em> by the structured-output category. Flagging the drop again would
+    report one defect twice.</li>
+    <li><strong>No <code>latency_regression</code>.</strong> Latency did not move at
+    all here — and even a +10&nbsp;ms move would fail both floors (+50&nbsp;ms
+    absolute <em>and</em> +25% relative).</li>
+  </ul>
 
-## Worst regressions
-- structured_json/order_summary: schema valid → invalid (missing 'total_usd')</code></pre>
+  <h2>The control, for contrast</h2>
+  <p><code>sj_control_reorder</code>'s recorded candidate emits the same object with
+  its keys reordered. The raw string changed; not one metric did.</p>
+  <pre><code>baseline:   {"title":"Weekly status","sentiment":"positive","score":0.7}
+candidate:  {"score":0.7,"sentiment":"positive","title":"Weekly status"}
+
+changed_fields:  ["final_output"]
+regression_flags: []
+human_readable_summary: "no regression: final_output changed; no metric crossed a threshold"</code></pre>
+  <p>This is the whole argument in one case. A regression is <strong>a measurable
+  behavioral property getting worse</strong>, not a string changing.</p>
+
+  <h2>The suite headline</h2>
+  <p>The same command over the eight-case smoke suite, from
+  <code>summary.json</code> and <code>comparison_meta.json</code>:</p>
+  <pre><code>cases paired     : 8            cases unpaired : 0
+cases regressed  : 6 (6 flags: 4 critical, 2 warn)
+
+  sj_invalid_json          structured_output_regression/critical
+  tu_wrong_tool            tool_call_regression/critical
+  re_unsupported_claim     evidence_grounding_regression/critical
+  rb_underrefuse           refusal_behavior_shift/critical
+  lc_latency_spike         latency_regression/warn
+  at_more_retries          error_rate_regression/warn
+  at_infra_noise           -                     # infra-attributed, surfaced not flagged
+  sj_control_reorder       -                     # control
+
+latency p50/p95  : 190.0 -> 210.0 ms / 300.0 -> 365.0 ms (delta +20.0 / +65.0)
+cost total       : $0.018700 -> $0.018700 (estimate, not a bill)
+infra-attributed : 1 case(s) surfaced, excluded from flags
+clusters         : 6</code></pre>
+
+  <h2>Reproduce it</h2>
+  <pre><code>python3 scripts/02_run_baseline.py
+python3 scripts/03_run_candidate.py
+python3 scripts/05_compare_runs.py            # add --fail-on critical for a CI gate</code></pre>
+  <p>Two invocations produce byte-identical artifacts.</p>
 
   <h2>Relevant files</h2>
   <ul class="files">
-    <li>evals/fixtures/structured_json/ — the fixture suite</li>
-    <li>src/llm_regression_observability/reports/markdown.py</li>
+    <li>evals/fixtures/structured_json/ — the fixture suite and its ground truth</li>
+    <li>src/llm_regression_observability/comparison/ — the engine</li>
+    <li>scripts/05_compare_runs.py — the command above</li>
+    <li>results/comparisons/&lt;comparison_id&gt;/ — comparison.jsonl, summary.json, comparison_meta.json</li>
+  </ul>
+
+  <h2>Open questions</h2>
+  <ul>
+    <li>The scripted adapter injects one <em>representative</em> defect per
+    category, so on four fixture cases its severity is harsher than the recorded
+    candidate's. Category recall is 18/18 on both paths; see
+    <a href="results.html">Results</a>.</li>
+    <li>The Markdown/HTML report that renders these records is Milestone 7.</li>
   </ul>
 </main>
-<footer class="site">llm-regression-observability — research/engineering artifact. Illustrative until the smoke run.</footer>
+<footer class="site">llm-regression-observability — research/engineering artifact. All fixtures synthetic; costs are estimates, not bills.</footer>
 </body>
 </html>

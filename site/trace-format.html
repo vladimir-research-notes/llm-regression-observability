@@ -31,7 +31,7 @@
   (append- and diff-friendly); plain JSON for single-object summaries. The full
   contract is <code>docs/TRACE_FORMAT.md</code>.</p>
 
-  <p><span class="status done">status: contract implemented in <code>schemas.py</code> (M1) and persisted by <code>traces/storage.py</code> (M4) — round-trip and byte-stability under test</span></p>
+  <p><span class="status done">status: contract implemented in <code>schemas.py</code> (M1), persisted by <code>traces/storage.py</code> (M4), and produced end to end through <code>ComparisonRecord</code> / <code>ReportSummary</code> / <code>ComparisonMeta</code> (M6) — round-trip and byte-stability under test</span></p>
 
   <h2>EvalCase</h2>
   <pre><code>case_id, version, prompt, input_payload, expected_properties,
@@ -88,14 +88,52 @@ identity_overrides[], cost_model, records_sha256, llmreg_version</code></pre>
 score_delta, latency_delta, cost_delta, json_validity_delta,
 tool_call_delta, refusal_delta, evidence_delta,
 regression_flags[], human_readable_summary</code></pre>
-  <p>One record per paired case. A <code>RegressionFlag</code> carries category,
-  severity, the triggering metric, the observed value, the threshold, an
-  explanation, and an <code>attribution</code> (app vs infra).</p>
+  <p>One record per <em>paired</em> case, in the baseline's run order.
+  <code>changed_fields</code> lists only the fields describing <em>what the
+  application did</em>: run identity (<code>run_id</code>,
+  <code>app_version</code>) and provenance (<code>model_id</code>,
+  <code>timestamp</code>, …) differ between every baseline and candidate, and
+  reporting them would bury the one field that matters.</p>
+  <p>Each delta is <code>candidate − baseline</code> on that dimension's headline
+  metric, and <code>0.0</code> when the case never declared the dimension.
+  <strong>A zero delta is not a claim that nothing changed</strong> —
+  <code>regression_flags</code> is the claim. Tool-argument drift and a
+  refusal-decision flip move no delta at all; they are pairwise, and they surface as
+  flags.</p>
+  <p>A <code>RegressionFlag</code> carries category, severity, the triggering
+  metric, the observed value, the threshold, an explanation, and an
+  <code>attribution</code> (app vs infra). There is at most <strong>one flag per
+  (case, category)</strong>: when several conditions fire, they collapse into the
+  strongest, which names the rest in its explanation. Values are always finite — a
+  guard rejects <code>inf</code>/<code>nan</code>, which <code>json.dumps</code>
+  would render as the non-standard <code>Infinity</code>.</p>
 
   <h2>ReportSummary</h2>
   <pre><code>comparison_id, suite_id, baseline_version, candidate_version,
 case_count, regressed_case_count, flags_by_category,
-latency_p50_delta, latency_p95_delta, cost_total_delta, clusters[]</code></pre>
+latency_p50_delta, latency_p95_delta, cost_total_delta, clusters[]
+
+FailureCluster: cluster_id, label, category, case_ids[]</code></pre>
+  <p>Percentiles and totals are computed over the paired cases only.
+  <code>cluster_id</code> is derived from content
+  (<code>&lt;category&gt;__&lt;signature&gt;</code>), not from an ordinal, so adding
+  a case to a run never renumbers the clusters an earlier report referred to.</p>
+
+  <h2>ComparisonMeta</h2>
+  <pre><code>comparison_id, suite_id, suite_path,
+baseline_run_id, candidate_run_id, baseline_version, candidate_version,
+baseline_adapter, candidate_adapter, paired_case_count,
+unpaired_baseline_case_ids[], unpaired_candidate_case_ids[],
+infra_attributed_case_ids[], infra_suppressed_categories{},
+cost_comparable, comparability_notes[], thresholds{},
+flag_count, critical_count, warn_count,
+baseline_latency_p50/p95, candidate_latency_p50/p95,
+baseline_cost_total_usd, candidate_cost_total_usd,
+records_sha256, llmreg_version</code></pre>
+  <p><code>summary.json</code> answers <em>what regressed</em>; this sidecar answers
+  <em>what the engine declined to say, and why</em>. An unpaired case and an
+  infra-suppressed flag are both invisible in the summary's counts, and both are
+  exactly the kind of silence that makes an evaluation harness lie.</p>
 
   <h2>Conventions</h2>
   <ul>
@@ -123,6 +161,13 @@ latency_p50_delta, latency_p95_delta, cost_total_delta, clusters[]</code></pre>
   <code>results/runs/&lt;run_id&gt;/</code>. Readers validate every line against its
   schema and report <code>path:lineno</code> on malformed input, so a corrupt
   artifact fails at load rather than halfway down the pipeline.</p>
+  <p><strong>Milestone 6 complete.</strong> <code>llmreg compare</code> produces the
+  comparison side of the contract: <code>comparison.jsonl</code>,
+  <code>summary.json</code> and <code>comparison_meta.json</code> under
+  <code>results/comparisons/&lt;comparison_id&gt;/</code>. The writer re-hashes the
+  records file against <code>ComparisonMeta.records_sha256</code> after writing, and
+  two comparisons of the same two runs produce byte-identical files. No Milestone 1
+  schema changed to accommodate the engine.</p>
 
   <h2>Relevant files</h2>
   <ul class="files">
@@ -130,8 +175,10 @@ latency_p50_delta, latency_p95_delta, cost_total_delta, clusters[]</code></pre>
     <li>src/llm_regression_observability/schemas.py — typed models (Milestone 1)</li>
     <li>src/llm_regression_observability/traces/storage.py — byte-stable JSONL/JSON read/write (Milestone 4)</li>
     <li>src/llm_regression_observability/executor.py — RunMeta and the run artifacts (Milestone 4)</li>
+    <li>src/llm_regression_observability/comparison/aggregate.py — ComparisonMeta and the comparison artifacts (Milestone 6)</li>
     <li>tests/test_schemas.py — round-trip, validation, and byte-stability tests</li>
     <li>tests/test_run_executor.py — storage round-trip, artifact self-check, determinism</li>
+    <li>tests/test_comparison.py — artifact reload, digest check, byte stability</li>
   </ul>
 
   <h2>Open questions / limitations</h2>

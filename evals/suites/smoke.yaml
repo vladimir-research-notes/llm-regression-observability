@@ -13,6 +13,7 @@ thresholds:
   latency_p95_rel: 0.25
   latency_abs_ms: 50
   cost_rel: 0.20
+  cost_abs_usd: 0.0005
   evidence_coverage_drop: 0.20
   tool_sequence_similarity: 0.80
   error_rate_delta: 0.10

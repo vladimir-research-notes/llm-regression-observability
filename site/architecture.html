@@ -31,7 +31,7 @@
   render into a report. Every stage writes inspectable JSON/JSONL artifacts so it
   can be re-run or examined on its own.</p>
 
-  <p><span class="status scaffold">status: contract defined; schemas (M1), fixtures (M2), adapters (M3), the run executor (M4) and the evaluators (M5) implemented; comparison, reports and observability across Milestones 6–8</span></p>
+  <p><span class="status done">status: the first two stages are built end to end — schemas (M1), fixtures (M2), adapters (M3), run executor (M4), evaluators (M5) and the comparison engine (M6). Reports and observability follow in Milestones 7–8</span></p>
 
   <h2>Pipeline</h2>
   <pre><code>evals/suites/*.yaml   ┌─────────────────────────────────────────┐
@@ -44,7 +44,7 @@ evaluators (M5)       ┌────────────────▼─�
 json_schema, exact,   │  COMPARISON ENGINE (M6)                  │──▶ results/comparisons/&lt;id&gt;/
 tool_calls, evidence, │  pair baseline vs candidate per case     │      comparison.jsonl
 latency, cost,        │  deltas → RegressionFlag(s), cluster,     │      summary.json
-refusal, error        │  aggregate by suite + category           │
+refusal, error        │  aggregate by suite + category           │      comparison_meta.json
                       └────────────────┬────────────────────────┘
                                        │
 reports (M7)          ┌────────────────▼────────────────────────┐
@@ -52,6 +52,17 @@ redaction (M9)        │  REPORT GENERATOR                        │──▶ 
 observability (M8)    │  headline, per-category, worst cases,     │
                       │  latency/cost tables, examples           │
                       └─────────────────────────────────────────┘</code></pre>
+
+  <h3>Why the comparison writes three files</h3>
+  <p><code>summary.json</code> answers <em>what regressed</em>.
+  <code>comparison_meta.json</code> answers <em>what the engine declined to say, and
+  why</em>: which cases went <code>unpaired</code>, which candidates were attributed
+  to infrastructure and had their flags withheld, whether cost was comparable at all
+  (two runs priced under different cost models are not), and which thresholds every
+  rule actually used. Both silences are invisible in the summary's counts, and both
+  are exactly the kind that makes an evaluation harness lie — so they get a file. A
+  comparison with an empty summary and a populated sidecar has found nothing and
+  hidden a lot, and the two together make that impossible to miss.</p>
 
   <h2>Why file-based stages</h2>
   <p>Each stage persists its output before the next begins. That makes the system
@@ -204,20 +215,25 @@ observability (M8)    │  headline, per-category, worst cases,     │
     <li>src/llm_regression_observability/executor.py — RunConfig, RunMeta, CostModel, execute_suite / write_run / run_suite</li>
     <li>src/llm_regression_observability/traces/storage.py — byte-stable JSONL/JSON readers and writers</li>
     <li>src/llm_regression_observability/evaluators/ — one module per scorer; registry.py, base.py (METRIC_DIRECTION, NEVER_FLAG_METRICS)</li>
-    <li>scripts/02_run_baseline.py · scripts/03_run_candidate.py · scripts/04_score_runs.py</li>
+    <li>src/llm_regression_observability/comparison/ — base.py, baseline.py, candidate.py, diff.py, regression.py, clustering.py, aggregate.py</li>
+    <li>scripts/02_run_baseline.py · scripts/03_run_candidate.py · scripts/04_score_runs.py · scripts/05_compare_runs.py</li>
     <li>tests/test_adapters.py — 46 tests (determinism, exact fixture replay, per-injector behavior, inert API stub)</li>
     <li>tests/test_run_executor.py — 51 tests (suite loading, byte-stable storage, identity re-stamping, token/cost accounting, artifact self-check)</li>
     <li>tests/test_evaluators.py — 155 tests (exact expected scores for all 26 fixture cases × both sides)</li>
+    <li>tests/test_comparison.py — 96 tests (detection recall, false positives, thresholds, attribution, clustering, artifacts)</li>
   </ul>
 
   <h2>Test / result status</h2>
-  <p><code>python3 -m pytest -q</code> → 345 passed. The recorded adapter
+  <p><code>python3 -m pytest -q</code> → 441 passed. The recorded adapter
   reproduces all 52 committed fixture records exactly; every non-control case
   receives a real injected defect and every true control receives none. The
   executor turns the eight-case smoke suite into a baseline and a candidate run
-  whose only differences are the injected defects, and the evaluators score each
-  run into <code>results/processed/&lt;run_id&gt;/metrics.jsonl</code> — every
-  injected defect moving exactly the metric it targets (see
+  whose only differences are the injected defects; the evaluators score each run
+  into <code>results/processed/&lt;run_id&gt;/metrics.jsonl</code>, every injected
+  defect moving exactly the metric it targets; and the comparison engine pairs the
+  two runs into <code>results/comparisons/&lt;id&gt;/</code>, detecting
+  <strong>18 of 18</strong> injected defects across the six fixture suites with
+  <strong>0 false positives</strong> on the eight negative controls (see
   <a href="results.html">Results</a>).</p>
 
   <h2>Open questions / limitations</h2>
@@ -228,10 +244,12 @@ observability (M8)    │  headline, per-category, worst cases,     │
   <code>run_id</code>s — Milestone 3's exact-replay guarantee holds one layer
   down, at the adapter. The two smoke runs also differ in <code>model_id</code>
   (<code>recorded-mock-v1</code> vs <code>scripted-regression-adapter</code>)
-  because provenance is preserved rather than faked, so Milestone 6 must compare
-  behavioral fields and treat identity separately. There is no server or
-  persistence layer beyond local files (an optional SQLite trace index is
-  regenerable). See <a href="limitations.html">Limitations</a>.</p>
+  because provenance is preserved rather than faked. Milestone 6 therefore diffs
+  only <code>comparison.BEHAVIORAL_FIELDS</code> and treats identity and provenance
+  separately: a model or prompt version bump is the thing under test, not evidence
+  of a regression. There is no server or persistence layer beyond local files (an
+  optional SQLite trace index is regenerable). See
+  <a href="limitations.html">Limitations</a>.</p>
 </main>
 <footer class="site">llm-regression-observability — research/engineering artifact. Built milestone by milestone.</footer>
 </body>

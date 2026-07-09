@@ -9,10 +9,10 @@ exercised end to end:
   than ``scripts/00_check_environment.py`` (the full host preflight); it exists
   so the CLI itself is testable and self-contained.
 
-Milestone 2 adds ``validate-fixtures``; Milestone 4 adds ``run-suite``. Later
-milestones add ``compare`` and ``report`` (see ``docs/PLAN.md``). This module
-stays dependency-free and calls no network, clock, or randomness in any scored
-path.
+Milestone 2 adds ``validate-fixtures``; Milestone 4 adds ``run-suite``; Milestone
+6 adds ``compare``. A later milestone adds ``report`` (see ``docs/PLAN.md``). This
+module stays dependency-free and calls no network, clock, or randomness in any
+scored path.
 """
 
 from __future__ import annotations
@@ -182,6 +182,119 @@ def _cmd_run_suite(args: argparse.Namespace) -> int:
     return 0
 
 
+#: ``compare --fail-on``: the weakest severity that makes the process exit 1.
+#: ``none`` reports without failing, which is the default: a comparison is an
+#: observation, and only a caller (a CI gate) decides what is unacceptable.
+FAIL_ON_CHOICES: tuple[str, ...] = ("none", "warn", "critical")
+
+
+def _cmd_compare(args: argparse.Namespace) -> int:
+    # Imported lazily so the cheap subcommands do not pay for the evaluators.
+    from .comparison import ComparisonError, compare_runs
+    from .comparison.regression import SEVERITY_ORDER
+    from .schemas import SchemaError
+
+    out_root = None if args.dry_run else Path(args.out)
+    try:
+        result = compare_runs(
+            Path(args.baseline),
+            Path(args.candidate),
+            out_root,
+            comparison_id=args.comparison_id,
+        )
+    except (ComparisonError, SchemaError, OSError) as exc:
+        print(f"error            : {exc}")
+        print("result           : FAIL")
+        return 1
+
+    meta, summary = result.meta, result.summary
+    print(f"comparison id    : {meta.comparison_id}")
+    print(f"suite            : {meta.suite_id} ({meta.suite_path})")
+    print(
+        f"baseline         : {meta.baseline_run_id} "
+        f"({meta.baseline_version}, {meta.baseline_adapter})"
+    )
+    print(
+        f"candidate        : {meta.candidate_run_id} "
+        f"({meta.candidate_version}, {meta.candidate_adapter})"
+    )
+    print(f"cases paired     : {meta.paired_case_count}")
+    unpaired = meta.unpaired_baseline_case_ids + meta.unpaired_candidate_case_ids
+    print(
+        f"cases unpaired   : {len(unpaired)}"
+        + (f" ({', '.join(sorted(unpaired))})" if unpaired else "")
+    )
+    print(
+        f"cases regressed  : {summary.regressed_case_count} "
+        f"({meta.flag_count} flags: {meta.critical_count} critical, "
+        f"{meta.warn_count} warn)"
+    )
+    print()
+    for record in result.records:
+        flags = ", ".join(
+            f"{flag.category}/{flag.severity}" for flag in record.regression_flags
+        )
+        print(f"  {record.case_id:24} {flags or '-'}")
+    print()
+
+    for category in sorted(summary.flags_by_category):
+        print(f"  {category:32} {summary.flags_by_category[category]}")
+    if not summary.flags_by_category:
+        print("  (no regression flags)")
+    print()
+    print(
+        f"latency p50/p95  : {meta.baseline_latency_p50:.1f} -> "
+        f"{meta.candidate_latency_p50:.1f} ms / {meta.baseline_latency_p95:.1f} -> "
+        f"{meta.candidate_latency_p95:.1f} ms "
+        f"(delta {summary.latency_p50_delta:+.1f} / {summary.latency_p95_delta:+.1f})"
+    )
+    if meta.cost_comparable:
+        print(
+            f"cost total       : ${meta.baseline_cost_total_usd:.6f} -> "
+            f"${meta.candidate_cost_total_usd:.6f} "
+            f"(delta ${summary.cost_total_delta:+.6f}; estimate, not a bill)"
+        )
+    else:
+        print(
+            "cost total       : not compared "
+            "(the two runs used different cost models)"
+        )
+    print(
+        f"infra-attributed : {len(meta.infra_attributed_case_ids)} case(s) "
+        "surfaced, excluded from flags"
+    )
+    print(f"clusters         : {len(summary.clusters)}")
+    for cluster in summary.clusters:
+        print(f"  {cluster.cluster_id:52} {cluster.label}")
+    for note in meta.comparability_notes:
+        print(f"note             : {note}")
+
+    print(f"sha256(records)  : {meta.records_sha256}")
+    if result.out_dir is None:
+        print("artifacts        : none written (--dry-run)")
+    else:
+        print(f"comparison       : {result.comparison_path}")
+        print(f"summary          : {result.summary_path}")
+        print(f"metadata         : {result.meta_path}")
+
+    if args.fail_on != "none":
+        floor = SEVERITY_ORDER[args.fail_on]
+        breaching = [
+            flag
+            for record in result.records
+            for flag in record.regression_flags
+            if SEVERITY_ORDER[flag.severity] >= floor
+        ]
+        if breaching:
+            print(
+                f"result           : FAIL ({len(breaching)} flag(s) at or above "
+                f"{args.fail_on})"
+            )
+            return 1
+    print("result           : PASS")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the ``llmreg`` argument parser."""
     parser = argparse.ArgumentParser(prog="llmreg", description=__summary__)
@@ -283,6 +396,39 @@ def build_parser() -> argparse.ArgumentParser:
         help="record an infra error for a failing case instead of aborting the run",
     )
     p_run.set_defaults(func=_cmd_run_suite)
+
+    p_compare = sub.add_parser(
+        "compare",
+        help="pair a baseline run against a candidate run and raise regression flags",
+    )
+    p_compare.add_argument(
+        "--baseline",
+        required=True,
+        help="baseline run directory, e.g. results/runs/smoke-baseline-recorded",
+    )
+    p_compare.add_argument(
+        "--candidate", required=True, help="candidate run directory"
+    )
+    p_compare.add_argument(
+        "--out", default="results/comparisons", help="output root directory"
+    )
+    p_compare.add_argument(
+        "--comparison-id",
+        default=None,
+        help="output directory name (default: <suite>-<baseline>-vs-<candidate>)",
+    )
+    p_compare.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="compare and summarize without writing any artifact",
+    )
+    p_compare.add_argument(
+        "--fail-on",
+        default="none",
+        choices=FAIL_ON_CHOICES,
+        help="exit 1 when a flag reaches this severity (default: none — report only)",
+    )
+    p_compare.set_defaults(func=_cmd_compare)
 
     return parser
 

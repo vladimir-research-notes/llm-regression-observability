@@ -36,8 +36,8 @@ API.
 
 ## End-to-end smoke
 
-Steps 1–4 are implemented (Milestones 2, 4 and 5); steps 5–6 arrive with
-Milestones 6 and 7.
+Steps 1–5 are implemented (Milestones 2, 4, 5 and 6); step 6 arrives with
+Milestone 7.
 
 ```bash
 # 1. validate fixtures
@@ -54,14 +54,18 @@ llmreg run-suite --suite evals/suites/smoke.yaml --adapter scripted-regression \
 # 4. score each run independently        (no deltas, no flags — that is step 5)
 python3 scripts/04_score_runs.py
 
-# 5. compare                                        (Milestone 6, not yet built)
-llmreg compare --baseline results/runs/<baseline_run_dir> \
-    --candidate results/runs/<candidate_run_dir> --out results/comparisons/
+# 5. compare: pair the runs, raise regression flags, cluster
+llmreg compare --baseline results/runs/smoke-baseline-recorded \
+    --candidate results/runs/smoke-candidate-scripted-regression \
+    --out results/comparisons/
 
 # 6. report                                         (Milestone 7, not yet built)
 llmreg report --comparison results/comparisons/<comparison_id> \
     --out results/reports/regression_report.md
 ```
+
+Step 5 detects six regressions and no false positives; add `--fail-on critical`
+to turn it into a CI gate (exit 1), or `--dry-run` to compare without writing.
 
 Without an editable install (the default on the build host), use the numbered
 helper scripts, which prepend `src/` to `sys.path`:
@@ -71,20 +75,31 @@ python3 scripts/01_validate_fixtures.py evals/fixtures
 python3 scripts/02_run_baseline.py     # -> results/runs/smoke-baseline-recorded/
 python3 scripts/03_run_candidate.py    # -> results/runs/smoke-candidate-scripted-regression/
 python3 scripts/04_score_runs.py       # -> results/processed/<run_id>/metrics.jsonl
+python3 scripts/05_compare_runs.py     # -> results/comparisons/smoke-baseline-vs-candidate/
 ```
 
-`02` and `03` accept extra `run-suite` flags verbatim, e.g. `--dry-run` (execute
-and summarize, write nothing) or `--out /tmp/runs`; `04` accepts `--run`,
-`--runs-root`, `--out`, and `--no-write`. `05_compare_runs.py` and
-`06_generate_report.py` land with their milestones.
+`02`, `03` and `05` accept extra flags verbatim, e.g. `--dry-run` (execute and
+summarize, write nothing) or `--out /tmp/runs`; `04` accepts `--run`,
+`--runs-root`, `--out`, and `--no-write`. `06_generate_report.py` lands with its
+milestone. (`05_compare_runs.py` takes the `04` slot named in
+`docs/milestones/06-comparison.md`; that number was already used by the
+Milestone 5 scorer.)
 
-Each run writes two artifacts, and scoring writes a third:
+Each run writes two artifacts, scoring writes a third, and the comparison writes
+three more:
 
 - `results/runs/<run_id>/run.jsonl` — one `RunRecord` per case, in suite order.
 - `results/runs/<run_id>/run_meta.json` — identity, totals, the cost model
   applied, and the SHA-256 of `run.jsonl`.
 - `results/processed/<run_id>/metrics.jsonl` — one `MetricResult` per
   (case, metric), sorted by metric name within each case.
+- `results/comparisons/<comparison_id>/comparison.jsonl` — one `ComparisonRecord`
+  per paired case.
+- `results/comparisons/<comparison_id>/summary.json` — the `ReportSummary`: what
+  regressed.
+- `results/comparisons/<comparison_id>/comparison_meta.json` — the
+  `ComparisonMeta`: unpaired cases, infra-attributed cases, withheld flags, the
+  thresholds applied, and the SHA-256 of `comparison.jsonl`.
 
 Generated `results/` contents are gitignored; regenerate them with the commands
 above.
@@ -106,11 +121,17 @@ diff -r results/runs/smoke-baseline-recorded \
 python3 scripts/04_score_runs.py --out results/processed/_check
 diff -r results/processed/smoke-baseline-recorded \
         results/processed/_check/smoke-baseline-recorded
+
+python3 scripts/05_compare_runs.py --out results/processed/_check
+diff -r results/comparisons/smoke-baseline-vs-candidate \
+        results/processed/_check/smoke-baseline-vs-candidate
 ```
 
-`run_meta.json` also carries `records_sha256`, which must equal
-`sha256sum results/runs/<run_id>/run.jsonl`. The executor asserts this after
-every write, and `tests/test_run_executor.py` asserts it independently.
+`run_meta.json` carries `records_sha256`, which must equal
+`sha256sum results/runs/<run_id>/run.jsonl`; `comparison_meta.json` carries the
+same digest for its `comparison.jsonl`. Both writers assert it after every write,
+and `tests/test_run_executor.py` / `tests/test_comparison.py` assert it
+independently.
 
 Latency is a **recorded input**, not a wall-clock measurement — timing the
 adapter would make artifacts differ run to run. See

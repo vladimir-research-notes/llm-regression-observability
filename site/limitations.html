@@ -88,12 +88,38 @@
   <code>detail["unsupported_keywords"]</code>, never silently ignored — ignoring
   one would let an invalid document score as valid.</p>
 
-  <h2>Heuristic attribution</h2>
+  <h2>Heuristic attribution, and infra attribution can mask a real regression</h2>
   <p>The application-vs-infrastructure split is rule-based and conservative:
   a record is attributed to infrastructure only when <em>every</em> error on it is
   infra-origin, so one app error makes the whole record the application's fault.
   It reduces harness-noise false positives but can misattribute an unusual
   failure; it reports its confidence rather than claiming certainty.</p>
+  <p>The comparison engine acts on that verdict: when a candidate record is
+  infra-attributed, <strong>every</strong> flag it would have raised is withheld, not
+  just the error-rate one. That is right when the harness timed out — a timeout
+  inflates latency, fails tool calls, and truncates output, and blaming the
+  application for any of it would be wrong. But it means <strong>a genuine
+  application regression that co-occurs with an infra error on the same case is
+  masked</strong>. The engine does not hide this: the case appears in
+  <code>comparison_meta.json</code> under <code>infra_attributed_case_ids</code>, and
+  the withheld categories under <code>infra_suppressed_categories</code>. Re-running
+  the suite is the remedy — an infra error should not reproduce, and an application
+  regression will.</p>
+
+  <h2>A flag is a threshold crossing, not a judgment of importance</h2>
+  <p>Severity is assigned by rule (<code>critical</code> for correctness lost,
+  <code>warn</code> for quality or efficiency degraded), not by impact. A
+  <code>critical</code> flag on a synthetic fixture is not a claim that the change
+  matters to any user. Likewise <code>flags_by_category</code> counts findings after
+  collapsing one flag per (case, category); it is not a count of everything that
+  moved.</p>
+
+  <h2>Detection recall is measured on defects built to be detected</h2>
+  <p>The 18/18 recall on <a href="results.html">Results</a> is measured on synthetic
+  fixtures whose defects were written alongside the rules that catch them. It shows
+  that the rules fire as specified, that the eight negative controls do not fire, and
+  that the pipeline is byte-reproducible. It is <strong>not</strong> evidence of
+  recall on real regressions in real systems, and no such claim is made.</p>
 
   <h2>No production deployment</h2>
   <p>No server, no auth, no multi-tenant story, no persistence beyond local files

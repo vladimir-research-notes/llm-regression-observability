@@ -31,37 +31,97 @@
   threshold-driven — nothing is learned or fitted. Full rules in
   <code>docs/REGRESSION_DETECTION.md</code>.</p>
 
-  <p><span class="status done">status: taxonomy defined; ground-truth fixtures shipped (Milestone 2); the metrics each category reads are implemented and exact-score tested (Milestone 5); the detector that turns them into flags lands in Milestone 6</span></p>
+  <p><span class="status done">status: Milestone 6 complete — all eight categories implemented in <code>comparison/regression.py</code>; 18/18 injected defects detected, 0 false positives on the 8 negative controls</span></p>
 
   <h2>The eight categories</h2>
   <table>
     <tr><th>Category</th><th>Fires when</th><th>Default threshold</th></tr>
-    <tr><td><code>structured_output_regression</code></td><td>JSON parse/schema validity dropped</td><td>valid → invalid on a case</td></tr>
-    <tr><td><code>tool_call_regression</code></td><td>wrong/missing/extra tool, arg or order drift</td><td>seq&nbsp;sim &lt; 0.8 or any disallowed/missing tool</td></tr>
-    <tr><td><code>latency_regression</code></td><td>p50/p95 latency exceeded threshold</td><td>p95 &gt; +25% and &gt; +50&nbsp;ms</td></tr>
-    <tr><td><code>cost_regression</code></td><td>estimated cost exceeded threshold</td><td>&gt; +20%</td></tr>
-    <tr><td><code>refusal_behavior_shift</code></td><td>over/under-refusal vs expected</td><td>any flip vs expected</td></tr>
-    <tr><td><code>evidence_grounding_regression</code></td><td>citations missing/wrong/unsupported</td><td>coverage drop &gt; 0.2 or new unsupported claim</td></tr>
-    <tr><td><code>final_answer_regression</code></td><td>task-success score dropped</td><td>success 1 → 0</td></tr>
-    <tr><td><code>error_rate_regression</code></td><td>app-origin error/retry rate increased</td><td>error-rate delta &gt; +0.1</td></tr>
+    <tr><td><code>structured_output_regression</code></td><td>JSON parse or schema validity dropped</td><td>valid → invalid on a case</td></tr>
+    <tr><td><code>tool_call_regression</code></td><td>wrong/missing/extra tool, arg or order drift</td><td>seq&nbsp;sim &lt; 0.8, or any disallowed/missing tool, or any arg drift</td></tr>
+    <tr><td><code>latency_regression</code></td><td>latency rose past both floors</td><td>&gt; +25% <strong>and</strong> &gt; +50&nbsp;ms</td></tr>
+    <tr><td><code>cost_regression</code></td><td>estimated cost rose past both floors</td><td>&gt; +20% <strong>and</strong> &gt; +$0.0005</td></tr>
+    <tr><td><code>refusal_behavior_shift</code></td><td>over/under-refusal, decision flip, risk-label move</td><td>any flip vs expected</td></tr>
+    <tr><td><code>evidence_grounding_regression</code></td><td>citations missing/wrong/unsupported</td><td>coverage drop &gt; 0.2, or any new unsupported claim</td></tr>
+    <tr><td><code>final_answer_regression</code></td><td>task success dropped on an <em>answer-level</em> property</td><td>success 1 → 0</td></tr>
+    <tr><td><code>error_rate_regression</code></td><td>app-origin error or retry rate increased</td><td>error-rate delta &gt; +0.1</td></tr>
   </table>
   <p>Thresholds are the documented defaults; the detector reads them from the
-  suite manifest, so they tune without code changes.</p>
+  suite manifest, so they tune without code changes. An <em>unknown</em> threshold
+  key is an error, not a shrug — a typo'd threshold that is silently ignored looks
+  exactly like one being honored.</p>
 
   <h2>Severity</h2>
-  <p><span class="pill critical">critical</span> correctness lost (success 1→0,
-  schema valid→invalid, disallowed tool, new unsupported claim).
-  <span class="pill warn">warn</span> quality/efficiency degraded past threshold
-  (latency, cost, partial evidence drop, arg drift).
-  <span class="pill">info</span> a noted change that did not cross a threshold.</p>
+  <p><span class="pill critical">critical</span> correctness lost: success 1→0 on
+  an answer-level property, schema valid→invalid, a parse that stopped parsing, a
+  disallowed tool, a missing tool call, a <em>new</em> unsupported claim,
+  under-refusal.
+  <span class="pill warn">warn</span> quality or efficiency degraded past a
+  threshold: latency, cost, tool sequence or argument drift, partial evidence drop,
+  a claim that <em>lost</em> its support, over-refusal, a risk-label move, a new
+  app-origin error or retry.
+  <span class="pill">info</span> reserved. A <em>flag</em> means a threshold was
+  crossed, so the engine emits only <code>warn</code> and <code>critical</code>.</p>
+
+  <h3>Two severity distinctions that carry weight</h3>
+  <p><strong>Under-refusal is critical; over-refusal is a warning.</strong>
+  Answering something the baseline declined is a correctness failure. Declining
+  something benign is a quality failure. Neither is visible in a string diff —
+  <em>"I'm sorry, but I can't help with that"</em> is a perfectly well-formed
+  answer.</p>
+  <p><strong>A <em>new</em> unsupported claim is critical; a claim that <em>lost</em>
+  its support is a warning.</strong> Both raise
+  <code>unsupported_claim_count</code> from 0 to 1, so the count alone cannot
+  separate them. The rule compares claim <em>texts</em>: <code>re_unsupported_claim</code>'s
+  candidate asserts something the baseline never said and cites nothing that backs
+  it — the model invented a fact. <code>re_wrong_source</code>'s makes the
+  <em>same</em> claim but cites the wrong document — the model degraded its
+  grounding.</p>
+
+  <h2>One defect, one signal</h2>
+  <p><code>task_success</code> is the <em>union</em> of a case's declared
+  <code>expected_properties</code>, and most of those belong to another dimension:
+  <code>json_schema_valid</code> is the structured-output scorer's business,
+  <code>expected_tools</code> is the tool scorer's. Flagging every task-success drop
+  as a <code>final_answer_regression</code> would report <strong>every</strong>
+  defect twice and turn <code>flags_by_category</code> into a histogram of itself.</p>
+  <p>So the drop is <em>attributed</em>. Each checkable property is owned by exactly
+  one category, and <code>final_answer_regression</code> fires only when a
+  newly-failed property is answer-level. On the fixtures,
+  <code>at_more_retries</code> keeps its answer ("done") but violates
+  <code>max_tool_errors: 0</code>: <code>score_delta = −1.0</code>, and the flag is
+  <code>error_rate_regression</code>, which owns that property.</p>
+  <p>Within a category, several conditions can fire at once — a wrong tool is also a
+  missing tool. They collapse into <strong>one flag per (case, category)</strong>
+  carrying the strongest severity and naming the rest in its explanation.</p>
 
   <h2>Application vs. harness noise</h2>
   <p>Every degradation is attributed <code>app</code> (raises a flag) or
   <code>infra</code> (recorded, surfaced, but not flagged). A timeout on a flaky
-  mock, a transport error, or a malformed fixture is harness noise. The rule set
-  is conservative — when in doubt it flags as <code>app</code> and labels its
-  confidence — because a missed regression is worse than a noisy one. This is the
-  mechanism behind research question&nbsp;#9.</p>
+  mock, a transport error, or a malformed fixture is harness noise.
+  <code>errors.attribution()</code> returns <code>infra</code> only when a record
+  errored and <em>every</em> error was infra-origin; one app error makes the whole
+  record <code>app</code>. It is conservative on purpose — when in doubt it flags —
+  because a missed regression is worse than a noisy one. This is the mechanism
+  behind research question&nbsp;#9.</p>
+  <p>When a record is infra-attributed, the categories that <em>would</em> have
+  fired are withheld and written to <code>comparison_meta.json</code> under
+  <code>infra_suppressed_categories</code>. Nothing is silently dropped. The cost is
+  real and documented: an application regression co-occurring with an infra error on
+  the same case is masked. See <a href="limitations.html">Limitations</a>.</p>
+
+  <h2>Clustering</h2>
+  <p>Flags group by <strong>failure signature</strong> — the specific way the
+  candidate broke: <code>schema_invalid</code>,
+  <code>disallowed_tool:shell_exec</code>, <code>coverage_drop</code>,
+  <code>app_error:tool_retry</code>. The signature carries the offending
+  <em>symbol</em>, because "the model started calling <code>shell_exec</code>" is a
+  root cause and "a tool was wrong" is not.</p>
+  <p>No distance metric, no fitted grouping — two flags cluster when they share
+  <code>(category, signature)</code>, period. A fitted grouping could not be
+  reproduced from the artifact alone, which is the same objection this project
+  raises to learned judges. On the fixtures, three cases that each fail schema
+  validation are one finding; a parse failure is a different root cause and clusters
+  alone.</p>
 
   <h2>Ground-truth fixtures (Milestone 2)</h2>
   <p>Each category is backed by a synthetic fixture suite whose candidate cases
@@ -88,9 +148,39 @@
   <ul>
     <li>Deterministic runs remove sampling variance.</li>
     <li>Thresholds combine a relative and an absolute minimum, so jitter never fires.</li>
-    <li>Direction-aware: only <em>worse</em> moves flag.</li>
+    <li>Direction-aware: only <em>worse</em> moves flag. A faster, cheaper, more
+    valid, more grounded, less error-prone candidate raises nothing.</li>
+    <li>A metric emitted on neither side — or on one side only — means
+    <em>not applicable</em>, never zero.</li>
+    <li>The two placeholder scorers and the infra counters can never raise a flag:
+    <code>TRIGGER_METRICS ∩ NEVER_FLAG_METRICS = ∅</code>, asserted at import.</li>
+    <li><code>field_diff_count</code> is not a trigger — it counts extra fields
+    regardless of <code>additionalProperties</code>, so a rise while validity holds
+    means the schema <em>permits</em> the field.</li>
     <li>Missing cases are reported <code>unpaired</code>, never scored as success.</li>
     <li>Correlated failures are clustered so one root cause reads as one finding.</li>
+  </ul>
+  <p>Measured on the committed fixtures: <strong>18 injected defects, 18 detected,
+  0 missed, 0 false positives</strong> on the 8 negative controls. See
+  <a href="results.html">Results</a>.</p>
+
+  <h2>Current test/result status</h2>
+  <p><code>tests/test_comparison.py</code> — 96 CPU-only tests. Detection is asserted
+  twice: once against each fixture's own <code>expected.json</code> oracle, and once
+  against a table pinning the <em>complete</em> flag set per case, so an extra flag
+  fails as loudly as a missing one.</p>
+
+  <h2>Open questions</h2>
+  <ul>
+    <li>Property ownership (<code>max_tool_errors</code> →
+    <code>error_rate_regression</code>, <code>expected_query</code> →
+    <code>tool_call_regression</code>) is a design decision, not a derived fact.</li>
+    <li>A refusal-decision flip is the one rule that fires on a <em>change</em>
+    rather than a <em>worsening</em>. It is gated to cases where refusal is part of
+    the task.</li>
+    <li>One flag per (case, category) keeps the runners-up only as prose in the
+    flag's <code>explanation</code>; <code>RegressionFlag</code> has no
+    <code>detail</code> field.</li>
   </ul>
 
   <h2>Relevant files</h2>
@@ -98,9 +188,10 @@
     <li>docs/REGRESSION_DETECTION.md</li>
     <li>evals/fixtures/&lt;suite&gt;/cases.json, expected.json — cases + ground truth</li>
     <li>data/fixtures/&lt;suite&gt;/baseline.jsonl, candidate.jsonl — recorded runs</li>
-    <li>evals/suites/smoke.yaml — smoke-run cross-section</li>
+    <li>evals/suites/smoke.yaml — smoke-run cross-section and its thresholds</li>
     <li>src/llm_regression_observability/datasets/ — loaders + fixture validator</li>
     <li>src/llm_regression_observability/comparison/regression.py, clustering.py</li>
+    <li>tests/test_comparison.py — the detection and false-positive assertions</li>
   </ul>
 </main>
 <footer class="site">llm-regression-observability — research/engineering artifact. Built milestone by milestone.</footer>
